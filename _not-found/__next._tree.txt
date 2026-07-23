@@ -1,0 +1,2 @@
+:HL["/sems2/_next/static/chunks/01l9dek0r38h1.css","style"]
+0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"/_not-found","param":null,"prefetchHints":0,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}}}},"staleTime":300,"buildId":"ecih9pWNP_6tUB_0WRPk6"}
