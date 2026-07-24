@@ -808,9 +808,11 @@ body.menu-open { overflow: hidden; }
   .target-status-metrics { padding-left: 0; }
 }
 
-/* Readability scale: keep operational data legible without relying on browser zoom. */
-body { font-size: 15px; }
-.nav-button { min-height: 48px; font-size: 14px; }
+/* Operational readability scale. The interface previously used 7–10px labels,
+   so this block establishes a real 13px minimum for supporting information. */
+html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+body { font-size: 16px; line-height: 1.58; }
+.nav-button { min-height: 50px; font-size: 15px; }
 .brand small,
 .nav-group-label,
 .notification-item small,
@@ -915,7 +917,7 @@ body { font-size: 15px; }
 .coverage-card p,
 .target-form-note,
 .plan-status-preview > span,
-.plan-status-preview p { font-size: 11px; }
+.plan-status-preview p { font-size: 13px; line-height: 1.5; }
 
 .help-card p,
 .help-card button,
@@ -990,7 +992,7 @@ body { font-size: 15px; }
 .target-list button > strong,
 .pathway-head strong,
 .coverage-card strong,
-.coverage-card > button { font-size: 12px; }
+.coverage-card > button { font-size: 14px; line-height: 1.5; }
 
 .help-card strong,
 .breadcrumb,
@@ -1014,7 +1016,7 @@ body { font-size: 15px; }
 .review-metrics strong,
 .audit-row > div strong,
 .backup-grid strong,
-.coverage-card strong { font-size: 13px; }
+.coverage-card strong { font-size: 15px; }
 
 .panel-title strong,
 .page-heading p,
@@ -1026,37 +1028,39 @@ body { font-size: 15px; }
 .settings-form input,
 .settings-form select,
 .textarea-label textarea,
-.review-reason textarea { font-size: 14px; }
+.review-reason textarea { font-size: 15px; }
 
-.card-header h2 { font-size: 16px; }
-.period-card-top h2 { font-size: 17px; }
+.page-heading h1 { font-size: 28px; }
+.card-header h2 { font-size: 18px; }
+.period-card-top h2 { font-size: 19px; }
 .review-detail-head h2,
-.target-detail-head h2 { font-size: 20px; }
-.modal-header h2 { font-size: 22px; }
+.target-detail-head h2 { font-size: 22px; }
+.modal-header h2 { font-size: 24px; }
+.kpi-value strong { font-size: 30px; }
 
 .file-linked,
-.file-missing { font-size: 11px !important; }
+.file-missing { font-size: 13px !important; }
 .primary-button,
-.secondary-button { min-height: 42px; padding-inline: 16px; }
+.secondary-button { min-height: 44px; padding-inline: 17px; }
 .primary-button.compact,
-.secondary-button.compact { min-height: 38px; padding-inline: 13px; }
+.secondary-button.compact { min-height: 40px; padding-inline: 14px; }
 .search-box,
 .filter-actions select,
 .period-filter-bar select,
-.audit-card .data-toolbar select { height: 40px; }
+.audit-card .data-toolbar select { height: 44px; }
 .form-section input,
 .form-section select,
 .settings-form input,
-.settings-form select { height: 44px; }
-.data-table th { height: 46px; padding-inline: 14px; }
-.data-table td { height: 72px; padding: 10px 14px; }
-.status-badge { padding: 5px 9px; }
-.row-actions > button:not(.more-button) { min-height: 34px; padding-inline: 10px; }
-.table-footer { min-height: 58px; }
-.pagination button { width: 32px; height: 32px; font-size: 12px; }
-.card-header { min-height: 74px; }
-.review-item { min-height: 82px; }
-.settings-nav button { min-height: 46px; }
+.settings-form select { height: 46px; }
+.data-table th { height: 50px; padding-inline: 15px; }
+.data-table td { height: 78px; padding: 12px 15px; }
+.status-badge { padding: 6px 10px; }
+.row-actions > button:not(.more-button) { min-height: 38px; padding-inline: 11px; }
+.table-footer { min-height: 62px; }
+.pagination button { width: 36px; height: 36px; font-size: 14px; }
+.card-header { min-height: 80px; }
+.review-item { min-height: 88px; }
+.settings-nav button { min-height: 50px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
