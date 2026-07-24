@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 
-type View = "dashboard" | "periods" | "collection" | "review" | "inventory" | "evidence" | "indicators" | "audit" | "settings";
+type View = "dashboard" | "periods" | "collection" | "review" | "inventory" | "targets" | "evidence" | "indicators" | "audit" | "settings";
 type Scope = "Scope 1" | "Scope 2" | "Scope 3";
 type RecordStatus = "작성중" | "검토대기" | "반려" | "확정";
 type EvidenceStatus = "수집중" | "완료" | "보완 요청" | "미제출";
@@ -109,12 +109,54 @@ type Indicator = {
   progress: number;
 };
 
+type TargetStatus = "초안" | "승인" | "종료";
+type ReductionTarget = {
+  id: string;
+  name: string;
+  company: string;
+  scopes: Scope[];
+  baselineYear: number;
+  baselineEmissions: number;
+  targetYear: number;
+  reductionRate: number;
+  targetEmissions: number;
+  owner: string;
+  status: TargetStatus;
+  description: string;
+  approvedAt?: string;
+  updatedAt: string;
+};
+
+type PlanStatus = "계획" | "진행중" | "완료" | "지연";
+type ReductionPlan = {
+  id: string;
+  targetId: string;
+  title: string;
+  company: string;
+  site: string;
+  scope: Scope;
+  category: string;
+  department: string;
+  owner: string;
+  startDate: string;
+  endDate: string;
+  expectedReduction: number;
+  actualReduction: number;
+  budget: number;
+  progress: number;
+  status: PlanStatus;
+  verification: string;
+  description: string;
+  updatedAt: string;
+};
+
 const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "dashboard", label: "대시보드", icon: "dashboard" },
   { id: "periods", label: "수집 기간", icon: "calendar" },
   { id: "collection", label: "데이터 수집", icon: "database" },
   { id: "review", label: "검토·승인", icon: "check" },
   { id: "inventory", label: "온실가스 인벤토리", icon: "leaf" },
+  { id: "targets", label: "감축목표·이행계획", icon: "target" },
   { id: "evidence", label: "증빙자료", icon: "file" },
   { id: "indicators", label: "ESG 지표 관리", icon: "list" },
   { id: "audit", label: "변경 이력", icon: "clock" },
@@ -216,6 +258,47 @@ const initialIndicators: Indicator[] = [
   { id: 6, code: "G-02", name: "윤리·준법 교육 이수율", category: "지배구조", unit: "%", cycle: "분기", owner: "기획팀", progress: 100 },
 ];
 
+const initialTargets: ReductionTarget[] = [
+  {
+    id: "TG-001",
+    name: "세원그룹 Scope 1·2 중기 감축목표",
+    company: "그룹 전체",
+    scopes: ["Scope 1", "Scope 2"],
+    baselineYear: 2024,
+    baselineEmissions: 15420,
+    targetYear: 2030,
+    reductionRate: 30,
+    targetEmissions: 10794,
+    owner: "기획팀",
+    status: "승인",
+    description: "2024년 확정 인벤토리를 기준으로 Scope 1·2 총배출량을 2030년까지 30% 감축합니다.",
+    approvedAt: "2026-02-20",
+    updatedAt: "2026-07-01",
+  },
+  {
+    id: "TG-002",
+    name: "세원정공 사업장 에너지 감축목표",
+    company: "세원정공",
+    scopes: ["Scope 1", "Scope 2"],
+    baselineYear: 2025,
+    baselineEmissions: 5820,
+    targetYear: 2030,
+    reductionRate: 25,
+    targetEmissions: 4365,
+    owner: "시설팀",
+    status: "초안",
+    description: "대구공장 에너지 효율화와 재생에너지 전환을 반영한 법인 단위 목표안입니다.",
+    updatedAt: "2026-07-15",
+  },
+];
+
+const initialPlans: ReductionPlan[] = [
+  { id: "RP-001", targetId: "TG-001", title: "대구공장 지붕형 태양광 도입", company: "세원정공", site: "대구공장", scope: "Scope 2", category: "재생에너지", department: "시설팀", owner: "김민수", startDate: "2026-08-01", endDate: "2027-06-30", expectedReduction: 1380, actualReduction: 0, budget: 920000000, progress: 15, status: "진행중", verification: "발전량 계량기·전력구매 내역", description: "자가소비형 태양광 설비 구축 및 월별 발전량을 전력 사용량과 연계합니다.", updatedAt: "2026-07-20" },
+  { id: "RP-002", targetId: "TG-001", title: "프레스·용접라인 대기전력 절감", company: "세원테크", site: "경산공장", scope: "Scope 2", category: "에너지 효율", department: "생산기술팀", owner: "이서연", startDate: "2026-03-01", endDate: "2026-12-31", expectedReduction: 620, actualReduction: 185, budget: 180000000, progress: 58, status: "진행중", verification: "설비별 전력계·개선 전후 사용량", description: "비가동 시간 자동 차단과 고효율 설비 교체 효과를 월별로 검증합니다.", updatedAt: "2026-07-18" },
+  { id: "RP-003", targetId: "TG-001", title: "냉매 누출 예방점검 강화", company: "세원E&I", site: "영천공장", scope: "Scope 1", category: "비산배출", department: "설비보전팀", owner: "윤태호", startDate: "2026-01-01", endDate: "2026-12-31", expectedReduction: 240, actualReduction: 96, budget: 35000000, progress: 64, status: "진행중", verification: "냉매 충전대장·누출점검표", description: "누출 취약설비를 분기 점검하고 냉매 보충량 감소분을 검증합니다.", updatedAt: "2026-07-10" },
+  { id: "RP-004", targetId: "TG-001", title: "업무용 차량 친환경차 전환", company: "세원물산", site: "대구공장", scope: "Scope 1", category: "이동연소", department: "총무팀", owner: "최유진", startDate: "2027-01-01", endDate: "2028-12-31", expectedReduction: 310, actualReduction: 0, budget: 260000000, progress: 0, status: "계획", verification: "차량대장·연료 구매내역", description: "교체주기가 도래한 업무용 내연기관 차량을 친환경차로 순차 전환합니다.", updatedAt: "2026-07-05" },
+];
+
 const companies = ["세원정공", "세원물산", "세원테크", "세원E&I"];
 const sitesByCompany: Record<string, string[]> = {
   세원정공: ["대구공장"], 세원물산: ["대구공장"], 세원테크: ["경산공장"], "세원E&I": ["영천공장"],
@@ -279,7 +362,7 @@ function periodTone(status: PeriodStatus) {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const key = status === "확정" || status === "완료" ? "done" : status === "검토대기" || status === "수집중" ? "pending" : status === "반려" || status === "보완 요청" ? "rejected" : "draft";
+  const key = status === "확정" || status === "완료" ? "done" : status === "검토대기" || status === "수집중" || status === "진행중" ? "pending" : status === "반려" || status === "보완 요청" || status === "지연" ? "rejected" : "draft";
   return <span className={`status-badge ${key}`}><span className="status-dot" />{status}</span>;
 }
 
@@ -298,6 +381,8 @@ export default function Home() {
   const [factors, setFactors] = useState<EmissionFactor[]>(initialFactors);
   const [evidence, setEvidence] = useState<EvidenceItem[]>(initialEvidenceItems);
   const [indicators, setIndicators] = useState<Indicator[]>(initialIndicators);
+  const [targets, setTargets] = useState<ReductionTarget[]>(initialTargets);
+  const [plans, setPlans] = useState<ReductionPlan[]>(initialPlans);
   const [periods, setPeriods] = useState<CollectionPeriod[]>(initialPeriods);
   const [audit, setAudit] = useState<AuditEvent[]>(initialAudit);
   const [criteria, setCriteria] = useState<CollectionCriteria>({ variance: 10, evidenceRequired: true, lockConfirmed: true, defaultYear: "2026" });
@@ -322,6 +407,8 @@ export default function Home() {
         const savedFactors = localStorage.getItem("sems2-factors"); if (savedFactors) setFactors(JSON.parse(savedFactors));
         const savedEvidence = localStorage.getItem("sems2-evidence"); if (savedEvidence) setEvidence(JSON.parse(savedEvidence));
         const savedIndicators = localStorage.getItem("sems2-indicators"); if (savedIndicators) setIndicators(JSON.parse(savedIndicators));
+        const savedTargets = localStorage.getItem("sems2-targets"); if (savedTargets) setTargets(JSON.parse(savedTargets));
+        const savedPlans = localStorage.getItem("sems2-reduction-plans"); if (savedPlans) setPlans(JSON.parse(savedPlans));
         const savedAudit = localStorage.getItem("sems2-audit"); if (savedAudit) setAudit(JSON.parse(savedAudit));
         const savedCriteria = localStorage.getItem("sems2-criteria"); if (savedCriteria) setCriteria(JSON.parse(savedCriteria));
         const savedNotices = localStorage.getItem("sems2-notice-prefs"); if (savedNotices) setNoticePrefs(JSON.parse(savedNotices));
@@ -336,6 +423,8 @@ export default function Home() {
   useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-factors", JSON.stringify(factors)); }, [factors, hydrated]);
   useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-evidence", JSON.stringify(evidence)); }, [evidence, hydrated]);
   useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-indicators", JSON.stringify(indicators)); }, [indicators, hydrated]);
+  useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-targets", JSON.stringify(targets)); }, [targets, hydrated]);
+  useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-reduction-plans", JSON.stringify(plans)); }, [plans, hydrated]);
   useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-audit", JSON.stringify(audit)); }, [audit, hydrated]);
   useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-criteria", JSON.stringify(criteria)); }, [criteria, hydrated]);
   useEffect(() => { if (!hydrated) return; localStorage.setItem("sems2-notice-prefs", JSON.stringify(noticePrefs)); }, [noticePrefs, hydrated]);
@@ -371,7 +460,7 @@ export default function Home() {
     setBulkOpen(false); showToast(`${rows.length}건을 일괄 등록했습니다.`);
   };
   const exportBackup = () => {
-    const payload = { version: 2, exportedAt: new Date().toISOString(), periods, records, factors, evidence, indicators, audit, criteria, noticePrefs, organizations };
+    const payload = { version: 3, exportedAt: new Date().toISOString(), periods, records, factors, evidence, indicators, targets, plans, audit, criteria, noticePrefs, organizations };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SEMS_backup_${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
     showToast("전체 운영 데이터를 백업했습니다.");
   };
@@ -379,6 +468,7 @@ export default function Home() {
     if (!Array.isArray(payload.periods) || !Array.isArray(payload.records) || !Array.isArray(payload.factors)) { showToast("SEMS 백업 파일 형식이 아닙니다."); return; }
     setPeriods(payload.periods as CollectionPeriod[]); setRecords(payload.records as ActivityRecord[]); setFactors(payload.factors as EmissionFactor[]);
     if (Array.isArray(payload.evidence)) setEvidence(payload.evidence as EvidenceItem[]); if (Array.isArray(payload.indicators)) setIndicators(payload.indicators as Indicator[]); if (Array.isArray(payload.audit)) setAudit(payload.audit as AuditEvent[]);
+    if (Array.isArray(payload.targets)) setTargets(payload.targets as ReductionTarget[]); if (Array.isArray(payload.plans)) setPlans(payload.plans as ReductionPlan[]);
     if (payload.criteria) setCriteria(payload.criteria as CollectionCriteria); if (payload.noticePrefs) setNoticePrefs(payload.noticePrefs as NotificationPrefs);
     if (payload.organizations) setOrganizations(payload.organizations as Record<string,string[]>);
     addAudit("데이터 복원", "전체 운영 데이터", "백업 파일에서 기간·활동자료·기준정보를 복원했습니다."); showToast("백업 데이터를 복원했습니다.");
@@ -393,15 +483,16 @@ export default function Home() {
     {mobileMenu && <button className="mobile-overlay" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기" />}
     <div className="workspace">
       <header className="topbar"><button className="icon-button mobile-menu-button" onClick={() => setMobileMenu(true)} aria-label="메뉴 열기"><Icon name="menu" /></button><div className="breadcrumb"><span>SEMS</span><Icon name="chevron" size={14} /><strong>{navItems.find(n => n.id === activeView)?.label ?? "시스템 설정"}</strong></div><div className="topbar-actions"><div className="demo-label operating"><span /> 운영 데이터 자동저장</div><button className="icon-button notification-button" onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileOpen(false); }} aria-label="알림"><Icon name="bell" />{!notificationsRead && <span className="notification-dot" />}</button><button className="profile profile-button" onClick={() => { setProfileOpen(!profileOpen); setNotificationsOpen(false); }}><div className="avatar">문</div><div><strong>문경섭</strong><span>기획팀 · 관리자</span></div><Icon name="chevron" size={15} /></button></div>
-        {notificationsOpen && <NotificationPanel periods={periods} records={records} onClose={() => setNotificationsOpen(false)} onRead={() => { setNotificationsRead(true); setNotificationsOpen(false); showToast("모든 알림을 확인했습니다."); }} />}
+        {notificationsOpen && <NotificationPanel periods={periods} records={records} targets={targets} plans={plans} onClose={() => setNotificationsOpen(false)} onRead={() => { setNotificationsRead(true); setNotificationsOpen(false); showToast("모든 알림을 확인했습니다."); }} />}
         {profileOpen && <ProfilePanel onSettings={() => navigate("settings")} onBackup={exportBackup} />}
       </header>
       <main className="content">
-        {activeView === "dashboard" && <Dashboard records={records} periods={periods} onNavigate={navigate} onNew={() => openForm()} />}
+        {activeView === "dashboard" && <Dashboard records={records} periods={periods} targets={targets} plans={plans} onNavigate={navigate} onNew={() => openForm()} />}
         {activeView === "periods" && <Periods periods={periods} records={records} onChange={setPeriods} addAudit={addAudit} showToast={showToast} />}
         {activeView === "collection" && <Collection records={records} periods={periods} criteria={criteria} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />}
         {activeView === "review" && <Review records={records} periods={periods} criteria={criteria} onChange={updateRecords} showToast={showToast} />}
-        {activeView === "inventory" && <Inventory records={records} showToast={showToast} />}
+        {activeView === "inventory" && <Inventory records={records} targets={targets} onNavigate={navigate} showToast={showToast} />}
+        {activeView === "targets" && <TargetsAndPlans targets={targets} plans={plans} records={records} organizations={organizations} onTargetsChange={setTargets} onPlansChange={setPlans} addAudit={addAudit} showToast={showToast} />}
         {activeView === "evidence" && <Evidence items={evidence} onChange={setEvidence} showToast={showToast} />}
         {activeView === "indicators" && <Indicators items={indicators} onChange={setIndicators} showToast={showToast} />}
         {activeView === "audit" && <AuditLog items={audit} showToast={showToast} />}
@@ -417,21 +508,27 @@ export default function Home() {
 
 function NavButton({ item, active, onClick, count }: { item: { id: View; label: string; icon: IconName }; active: boolean; onClick: () => void; count?: number }) { return <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}><Icon name={item.icon} /><span>{item.label}</span>{count ? <em>{count}</em> : null}</button>; }
 
-function NotificationPanel({ periods, records, onClose, onRead }: { periods: CollectionPeriod[]; records: ActivityRecord[]; onClose: () => void; onRead: () => void }) {
+function NotificationPanel({ periods, records, targets, plans, onClose, onRead }: { periods: CollectionPeriod[]; records: ActivityRecord[]; targets: ReductionTarget[]; plans: ReductionPlan[]; onClose: () => void; onRead: () => void }) {
   const active = periods.find(period => period.status === "수집중");
   const pending = records.filter(record => record.status === "검토대기").length;
   const rejected = records.filter(record => record.status === "반려").length;
+  const approved = targets.find(target => target.status === "승인" && target.company === "그룹 전체") ?? targets.find(target => target.status === "승인");
+  const required = approved ? approved.baselineEmissions - approved.targetEmissions : 0;
+  const secured = approved ? plans.filter(plan => plan.targetId === approved.id).reduce((sum,plan)=>sum+plan.expectedReduction,0) : 0;
+  const delayed = plans.filter(plan => normalizePlanStatus(plan) === "지연").length;
   return <div className="notification-panel"><div className="panel-title"><strong>업무 알림</strong><button onClick={onClose} aria-label="알림 닫기"><Icon name="close" size={16} /></button></div>
     {active && <div className="notification-item unread"><span className="notification-icon warning"><Icon name="calendar" size={17} /></span><div><strong>{active.name}</strong><p>제출 마감까지 {Math.max(0, daysUntil(active.dueDate))}일 남았습니다.</p><small>{active.dueDate} 마감</small></div></div>}
     <div className="notification-item"><span className="notification-icon success"><Icon name="check" size={17} /></span><div><strong>검토 대기 {pending}건</strong><p>기획실 검토와 확정 처리가 필요합니다.</p><small>현재 기준</small></div></div>
     {rejected > 0 && <div className="notification-item"><span className="notification-icon warning"><Icon name="alert" size={17} /></span><div><strong>보완 요청 {rejected}건</strong><p>담당자 재작성과 재제출이 필요합니다.</p><small>현재 기준</small></div></div>}
+    {approved && secured < required && <div className="notification-item"><span className="notification-icon warning"><Icon name="target" size={17} /></span><div><strong>미확보 감축량 {formatNumber(required-secured,0)} tCO₂e</strong><p>승인 목표를 충족할 추가 감축과제가 필요합니다.</p><small>{approved.targetYear}년 목표</small></div></div>}
+    {delayed > 0 && <div className="notification-item"><span className="notification-icon warning"><Icon name="clock" size={17} /></span><div><strong>지연 감축과제 {delayed}건</strong><p>지연 사유와 후속조치를 입력해 주세요.</p><small>현재 기준</small></div></div>}
     <button className="all-notifications" onClick={onRead}>모두 확인</button></div>;
 }
 function ProfilePanel({ onSettings, onBackup }: { onSettings: () => void; onBackup: () => void }) { return <div className="profile-panel"><div><strong>문경섭</strong><span>기획팀 · 시스템 관리자</span></div><button onClick={onSettings}><Icon name="settings" size={16} />시스템 설정</button><button onClick={onBackup}><Icon name="download" size={16} />전체 데이터 백업</button><p>현재 입력 내용은 이 브라우저에 자동 저장됩니다. 정기 백업을 권장합니다.</p></div>; }
 
-function GuideModal({ onClose }: { onClose: () => void }) { return <Overlay title="SEMS 사용 가이드" eyebrow="OPERATING GUIDE" description="수집기간 개설부터 마감·잠금까지의 실제 운영 순서입니다." onClose={onClose}><div className="guide-steps"><div><span>01</span><strong>수집기간 개설</strong><p>대상 귀속기간, 제출·검토 마감일, 법인과 Scope를 정한 뒤 수집을 시작합니다.</p></div><div><span>02</span><strong>활동자료 등록</strong><p>Scope를 선택하면 해당 활동자료만 표시되며 승인된 배출계수가 자동 적용됩니다.</p></div><div><span>03</span><strong>검증·제출</strong><p>중복, 증빙, 전월·전년 대비 이상치를 확인하고 검토 대기로 제출합니다.</p></div><div><span>04</span><strong>검토·보완·확정</strong><p>기획실에서 증빙과 산정값을 검토하고 보완 요청 또는 확정 처리합니다.</p></div><div><span>05</span><strong>마감·잠금</strong><p>검토가 끝난 기간을 잠그면 확정 자료 수정과 삭제가 차단됩니다.</p></div><div><span>06</span><strong>백업·보고</strong><p>인벤토리와 증빙 현황을 내려받고 운영 데이터 전체를 정기 백업합니다.</p></div></div><div className="modal-footer"><button className="primary-button" onClick={onClose}>확인</button></div></Overlay>; }
+function GuideModal({ onClose }: { onClose: () => void }) { return <Overlay title="SEMS 사용 가이드" eyebrow="OPERATING GUIDE" description="기준 설정부터 목표 이행과 개선조치까지 이어지는 실제 운영 순서입니다." onClose={onClose}><div className="guide-steps"><div><span>01</span><strong>산정 기준 설정</strong><p>조직·사업장과 활동자료별 배출계수를 먼저 등록해 일관된 산정 기준을 만듭니다.</p></div><div><span>02</span><strong>수집·검토·인벤토리 확정</strong><p>기간을 개설하고 활동자료와 증빙을 수집·검토한 뒤 기준연도 인벤토리를 확정합니다.</p></div><div><span>03</span><strong>감축목표 수립·승인</strong><p>확정 인벤토리를 기준값으로 불러와 대상 Scope, 목표연도와 감축률을 정합니다.</p></div><div><span>04</span><strong>이행계획 수립</strong><p>승인 목표의 필요 감축량을 사업장별 감축과제로 분해하고 담당·예산·일정을 지정합니다.</p></div><div><span>05</span><strong>실적·증빙 관리</strong><p>월별 배출실적과 과제 진척도, 실제 감축량 및 검증 증빙을 함께 관리합니다.</p></div><div><span>06</span><strong>목표 대비 분석·보완</strong><p>연도별 경로와 실적 차이, 미확보 감축량과 지연 과제를 확인해 추가 과제를 수립합니다.</p></div></div><div className="modal-footer"><button className="primary-button" onClick={onClose}>확인</button></div></Overlay>; }
 
-function Dashboard({ records, periods, onNavigate, onNew }: { records: ActivityRecord[]; periods: CollectionPeriod[]; onNavigate: (view: View) => void; onNew: () => void }) {
+function Dashboard({ records, periods, targets, plans, onNavigate, onNew }: { records: ActivityRecord[]; periods: CollectionPeriod[]; targets: ReductionTarget[]; plans: ReductionPlan[]; onNavigate: (view: View) => void; onNew: () => void }) {
   const years = [...new Set(records.map(r => r.period.slice(0, 4)))].sort().reverse(); const [year, setYear] = useState(years[0] ?? "2026");
   const data = records.filter(r => r.period.startsWith(year)); const confirmedData = data.filter(r => r.status === "확정"&&r.active!==false); const total = confirmedData.reduce((s, r) => s + r.emissions, 0); const confirmed = confirmedData.length; const pending = data.filter(r => r.status === "검토대기");
   const activePeriod = periods.find(period => period.status === "수집중") ?? periods.find(period => period.status === "검토중");
@@ -439,9 +536,15 @@ function Dashboard({ records, periods, onNavigate, onNew }: { records: ActivityR
   const completion = data.length ? Math.round((confirmed / data.length) * 100) : 0; const evidenceRate = data.length ? Math.round(data.filter(r => r.evidence).length / data.length * 1000) / 10 : 0;
   const monthly = Array.from({ length: 12 }, (_, i) => { const month = String(i + 1).padStart(2, "0"); const monthRows = confirmedData.filter(r => r.period === `${year}-${month}`); return { month: `${i + 1}월`, s1: monthRows.filter(r => r.scope === "Scope 1").reduce((s,r)=>s+r.emissions,0), s2: monthRows.filter(r => r.scope === "Scope 2").reduce((s,r)=>s+r.emissions,0), s3: monthRows.filter(r => r.scope === "Scope 3").reduce((s,r)=>s+r.emissions,0) }; });
   const chartMax = Math.max(1, ...monthly.map(m => m.s1 + m.s2 + m.s3)); const percents = scopeTotals.map(v => total ? Math.round(v / total * 100) : 0);
+  const approvedTarget = targets.find(target => target.status === "승인" && target.company === "그룹 전체") ?? targets.find(target => target.status === "승인");
+  const targetPlans = approvedTarget ? plans.filter(plan => plan.targetId === approvedTarget.id) : [];
+  const requiredReduction = approvedTarget ? approvedTarget.baselineEmissions - approvedTarget.targetEmissions : 0;
+  const securedReduction = targetPlans.reduce((sum, plan) => sum + plan.expectedReduction, 0);
+  const planCoverage = requiredReduction > 0 ? Math.min(100, Math.round(securedReduction / requiredReduction * 100)) : 0;
   return <><PageHeader eyebrow={`${year} ESG PERFORMANCE`} title="ESG 통합 대시보드" description="세원그룹의 ESG 데이터 수집 현황과 주요 성과를 한눈에 확인합니다."><label className="year-select"><Icon name="calendar" size={17} /><select value={year} onChange={e => setYear(e.target.value)}>{years.map(y => <option key={y}>{y}</option>)}</select></label><button className="primary-button" onClick={onNew}><Icon name="plus" size={17} />자료 입력</button></PageHeader>
     {activePeriod ? <section className="notice-banner"><div className="notice-icon"><Icon name="alert" /></div><div><strong>{activePeriod.name} · {activePeriod.status === "수집중" ? `제출 마감까지 ${Math.max(0, daysUntil(activePeriod.dueDate))}일` : "기획실 검토 진행 중"}</strong><p>{activePeriod.dataFrom}~{activePeriod.dataTo} 귀속자료 · 검토 대기 {pending.length}건</p></div><button onClick={() => onNavigate(activePeriod.status === "수집중" ? "collection" : "review")}>{activePeriod.status === "수집중" ? "수집 현황 보기" : "검토 화면 열기"} <Icon name="arrow" size={16} /></button></section> : <section className="notice-banner neutral"><div className="notice-icon"><Icon name="calendar" /></div><div><strong>현재 진행 중인 수집기간이 없습니다.</strong><p>수집 기간 메뉴에서 다음 정기수집을 개설해 주세요.</p></div><button onClick={() => onNavigate("periods")}>기간 설정 <Icon name="arrow" size={16} /></button></section>}
-    <section className="kpi-grid"><KpiCard label="온실가스 배출량" value={formatNumber(total, 1)} unit="tCO₂e" trend="등록된 활동자료 기준" trendType="good" icon="leaf" tone="green"/><KpiCard label="데이터 확정률" value={String(completion)} unit="%" trend={`${confirmed}/${data.length}개 항목 확정`} trendType="neutral" icon="database" tone="blue" progress={completion}/><KpiCard label="검토 대기" value={String(pending.length)} unit="건" trend="기획실 검토가 필요합니다." trendType={pending.length ? "warn" : "good"} icon="clock" tone="amber"/><KpiCard label="증빙 연결률" value={String(evidenceRate)} unit="%" trend={`미연결 증빙 ${data.filter(r => !r.evidence).length}건`} trendType={evidenceRate < 100 ? "warn" : "good"} icon="file" tone="violet" progress={evidenceRate}/></section>
+    {approvedTarget ? <section className="target-status-banner"><div className="target-status-main"><span><Icon name="target" size={20}/></span><div><small>승인 감축목표</small><strong>{approvedTarget.name}</strong><p>{approvedTarget.baselineYear}년 {formatNumber(approvedTarget.baselineEmissions,0)} tCO₂e → {approvedTarget.targetYear}년 {formatNumber(approvedTarget.targetEmissions,0)} tCO₂e ({approvedTarget.reductionRate}% 감축)</p></div></div><div className="target-status-metrics"><div><span>필요 감축량</span><strong>{formatNumber(requiredReduction,0)}<small> tCO₂e</small></strong></div><div><span>과제 확보율</span><strong>{planCoverage}<small>%</small></strong></div></div><button onClick={()=>onNavigate("targets")}>목표·계획 관리 <Icon name="arrow" size={16}/></button></section> : <section className="notice-banner neutral"><div className="notice-icon"><Icon name="target"/></div><div><strong>승인된 온실가스 감축목표가 없습니다.</strong><p>확정 인벤토리를 기준으로 목표와 실행계획을 먼저 수립해 주세요.</p></div><button onClick={()=>onNavigate("targets")}>목표 설정 <Icon name="arrow" size={16}/></button></section>}
+    <section className="kpi-grid"><KpiCard label="온실가스 배출량" value={formatNumber(total, 1)} unit="tCO₂e" trend="확정된 활동자료 기준" trendType="good" icon="leaf" tone="green"/><KpiCard label="데이터 확정률" value={String(completion)} unit="%" trend={`${confirmed}/${data.length}개 항목 확정`} trendType="neutral" icon="database" tone="blue" progress={completion}/><KpiCard label="감축과제 확보율" value={String(planCoverage)} unit="%" trend={approvedTarget?`필요 감축량 중 ${formatNumber(securedReduction,0)} t 확보`:"승인 목표를 먼저 설정하세요."} trendType={planCoverage>=100?"good":"warn"} icon="target" tone="green" progress={planCoverage}/><KpiCard label="증빙 연결률" value={String(evidenceRate)} unit="%" trend={`미연결 증빙 ${data.filter(r => !r.evidence).length}건`} trendType={evidenceRate < 100 ? "warn" : "good"} icon="file" tone="violet" progress={evidenceRate}/></section>
     <section className="dashboard-grid"><article className="card emissions-chart-card"><CardHeader title="월별 온실가스 배출 추이" subtitle="Scope 1·2·3 합산 배출량" action="단위: tCO₂e"/><div className="chart-legend"><span><i className="scope1"/>Scope 1</span><span><i className="scope2"/>Scope 2</span><span><i className="scope3"/>Scope 3</span></div><div className="bar-chart"><div className="axis-labels"><span>{formatNumber(chartMax,0)}</span><span>{formatNumber(chartMax*.75,0)}</span><span>{formatNumber(chartMax*.5,0)}</span><span>{formatNumber(chartMax*.25,0)}</span><span>0</span></div><div className="grid-lines"><i/><i/><i/><i/><i/></div><div className="bars">{monthly.map(item => { const sum=item.s1+item.s2+item.s3; return <div className="bar-group" key={item.month}><div className="bar-stack chart-scaled" style={{height:`${Math.max(sum/chartMax*170,4)}px`}}><span className="scope3" style={{height:`${sum ? item.s3/sum*100 : 0}%`}}/><span className="scope2" style={{height:`${sum ? item.s2/sum*100 : 0}%`}}/><span className="scope1" style={{height:`${sum ? item.s1/sum*100 : 0}%`}}/>{sum>0&&<b>{formatNumber(sum,0)}</b>}</div><small>{item.month}</small></div>; })}</div></div></article>
       <article className="card scope-card"><CardHeader title="Scope별 배출 구성" subtitle={`${year}년 누적 기준`}/><div className="donut-wrap"><div className="donut" style={{background:`conic-gradient(#156b55 0 ${percents[0]}%, #42a585 ${percents[0]}% ${percents[0]+percents[1]}%, #a6d7c7 ${percents[0]+percents[1]}% 100%)`}}><div><strong>{formatNumber(total,1)}</strong><span>tCO₂e</span></div></div></div><div className="scope-breakdown"><ScopeRow label="Scope 1" value={scopeTotals[0]} color="dark" percent={percents[0]}/><ScopeRow label="Scope 2" value={scopeTotals[1]} color="mid" percent={percents[1]}/><ScopeRow label="Scope 3" value={scopeTotals[2]} color="light" percent={percents[2]}/></div></article>
       <article className="card collection-card"><CardHeader title="법인별 확정 현황" subtitle={`${year}년 등록 자료 기준`} action={<button onClick={()=>onNavigate("collection")}>전체보기 <Icon name="arrow" size={14}/></button>}/><div className="company-progress">{companies.map(name => { const rows=data.filter(r=>r.company===name); const val=rows.length?Math.round(rows.filter(r=>r.status==="확정").length/rows.length*100):0; return <ProgressRow key={name} label={name} value={val} detail={`${rows.filter(r=>r.status==="확정").length} / ${rows.length}`}/>; })}</div></article>
@@ -456,7 +559,13 @@ function ProgressRow({label,value,detail}:{label:string;value:number;detail:stri
 function Periods({ periods, records, onChange, addAudit, showToast }: { periods: CollectionPeriod[]; records: ActivityRecord[]; onChange: (items: CollectionPeriod[]) => void; addAudit: (action: string, target: string, detail: string, actor?: string) => void; showToast: (m: string) => void }) {
   const [editing, setEditing] = useState<CollectionPeriod | "new" | null>(null);
   const updateStatus = (period: CollectionPeriod, status: PeriodStatus) => {
-    if (status === "잠금" && records.some(record => record.collectionId === period.id && record.status === "검토대기")) { showToast("검토 대기 자료가 남아 있어 잠글 수 없습니다."); return; }
+    const periodRecords = records.filter(record => record.collectionId === period.id && record.active !== false);
+    const unresolved = periodRecords.filter(record => record.status !== "확정");
+    if (status === "마감" && (!periodRecords.length || unresolved.length)) {
+      showToast(!periodRecords.length ? "등록된 자료가 없어 검토를 마감할 수 없습니다." : `미확정 자료 ${unresolved.length}건을 모두 확정하거나 제외해 주세요.`);
+      return;
+    }
+    if (status === "잠금" && period.status !== "마감") { showToast("검토 마감 후에만 기간을 잠글 수 있습니다."); return; }
     const next = periods.map(item => item.id === period.id ? { ...item, status } : item);
     onChange(next);
     addAudit("수집기간 상태 변경", period.name, `${period.status}에서 ${status}(으)로 변경했습니다.`);
@@ -479,7 +588,7 @@ function Periods({ periods, records, onChange, addAudit, showToast }: { periods:
         <div className="period-dates"><div><span>귀속기간</span><strong>{period.dataFrom === period.dataTo ? period.dataFrom : `${period.dataFrom} ~ ${period.dataTo}`}</strong></div><div><span>수집기간</span><strong>{period.openDate} ~ {period.dueDate}</strong></div><div><span>검토마감</span><strong>{period.reviewDate}</strong></div></div>
         <div className="period-targets"><span>{period.cycle} 수집</span><span>{period.companies.length}개 법인</span><span>{period.scopes.join(" · ")}</span><span>{period.evidenceRequired ? "증빙 필수" : "증빙 선택"}</span></div>
         <div className="period-progress"><div><span>등록 {rows.length}건 · 제출 {submitted}건 · 확정 {confirmed}건</span><strong>{completion}%</strong></div><div className="progress-track"><span style={{width:`${completion}%`}}/></div></div>
-        <div className="period-actions">{period.status === "예정" && <button className="primary-button compact" onClick={()=>updateStatus(period,"수집중")}>수집 시작</button>}{period.status === "수집중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"검토중")}>제출 마감·검토 시작</button>}{period.status === "검토중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"잠금")}>검토 완료·잠금</button>}{["마감","잠금"].includes(period.status) && <button className="secondary-button compact" onClick={()=>updateStatus(period,"수집중")}>기간 다시 열기</button>}<button className="secondary-button compact" onClick={()=>setEditing(period)}>설정 수정</button></div>
+        <div className="period-actions">{period.status === "예정" && <button className="primary-button compact" onClick={()=>updateStatus(period,"수집중")}>수집 시작</button>}{period.status === "수집중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"검토중")}>제출 마감·검토 시작</button>}{period.status === "검토중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"마감")}>검토 완료·마감</button>}{period.status === "마감" && <button className="primary-button compact" onClick={()=>updateStatus(period,"잠금")}>확정자료 잠금</button>}{["마감","잠금"].includes(period.status) && <button className="secondary-button compact" onClick={()=>updateStatus(period,"수집중")}>기간 다시 열기</button>}<button className="secondary-button compact" onClick={()=>setEditing(period)}>설정 수정</button></div>
       </article>;
     })}</section>
     {editing && <PeriodForm item={editing === "new" ? null : editing} existing={periods} onClose={()=>setEditing(null)} onSave={save}/>}
@@ -495,7 +604,7 @@ function PeriodForm({ item, existing, onClose, onSave }: { item: CollectionPerio
   const toggleCompany = (company: string) => patch({ companies: form.companies.includes(company) ? form.companies.filter(item => item !== company) : [...form.companies, company] });
   const submit = (event: FormEvent) => { event.preventDefault(); if (form.dataFrom > form.dataTo) { setError("귀속기간 종료월은 시작월보다 빠를 수 없습니다."); return; } if (form.openDate > form.dueDate || form.dueDate > form.reviewDate) { setError("수집 시작일 → 제출 마감일 → 검토 마감일 순서로 설정해 주세요."); return; } if (!form.scopes.length || !form.companies.length) { setError("대상 법인과 Scope를 한 개 이상 선택해 주세요."); return; } onSave(form); };
   return <Overlay title={item ? "수집기간 수정" : "새 수집기간 개설"} eyebrow="COLLECTION SCHEDULE" description="기간이 수집중일 때만 담당자가 활동자료를 등록·제출할 수 있습니다." onClose={onClose}><form onSubmit={submit}>
-    <div className="form-section"><h3><span>1</span>수집 기본정보</h3><div className="form-grid"><label className="full-span">수집기간명<input value={form.name} onChange={e=>patch({name:e.target.value})} placeholder="예: 2026년 8월 ESG 정기수집" required/></label><label>수집 주기<select value={form.cycle} onChange={e=>patch({cycle:e.target.value as CollectionPeriod["cycle"]})}><option>월</option><option>분기</option><option>반기</option><option>연</option><option>수시</option></select></label><label>상태<select value={form.status} onChange={e=>patch({status:e.target.value as PeriodStatus})}><option>예정</option><option>수집중</option><option>검토중</option><option>마감</option><option>잠금</option></select></label><label>귀속 시작월<input type="month" value={form.dataFrom} onChange={e=>patch({dataFrom:e.target.value})} required/></label><label>귀속 종료월<input type="month" value={form.dataTo} onChange={e=>patch({dataTo:e.target.value})} required/></label></div></div>
+    <div className="form-section"><h3><span>1</span>수집 기본정보</h3><div className="form-grid"><label className="full-span">수집기간명<input value={form.name} onChange={e=>patch({name:e.target.value})} placeholder="예: 2026년 8월 온실가스 정기수집" required/></label><label>수집 주기<select value={form.cycle} onChange={e=>patch({cycle:e.target.value as CollectionPeriod["cycle"]})}><option>월</option><option>분기</option><option>반기</option><option>연</option><option>수시</option></select></label><label>현재 상태<input value={form.status} readOnly className="readonly-input"/><small className="field-help">상태는 기간 카드의 단계별 버튼으로만 변경됩니다.</small></label><label>귀속 시작월<input type="month" value={form.dataFrom} onChange={e=>patch({dataFrom:e.target.value})} required/></label><label>귀속 종료월<input type="month" value={form.dataTo} onChange={e=>patch({dataTo:e.target.value})} required/></label></div></div>
     <div className="form-section"><h3><span>2</span>운영 일정</h3><div className="form-grid"><label>수집 시작일<input type="date" value={form.openDate} onChange={e=>patch({openDate:e.target.value})} required/></label><label>제출 마감일<input type="date" value={form.dueDate} onChange={e=>patch({dueDate:e.target.value})} required/></label><label>검토 마감일<input type="date" value={form.reviewDate} onChange={e=>patch({reviewDate:e.target.value})} required/></label><Toggle label="제출 시 증빙 필수" checked={form.evidenceRequired} onChange={value=>patch({evidenceRequired:value})}/></div></div>
     <div className="form-section"><h3><span>3</span>수집 대상</h3><div className="check-group"><strong>대상 Scope</strong><div>{(["Scope 1","Scope 2","Scope 3"] as Scope[]).map(scope=><label key={scope}><input type="checkbox" checked={form.scopes.includes(scope)} onChange={()=>toggleScope(scope)}/>{scope}</label>)}</div></div><div className="check-group"><strong>대상 법인</strong><div>{companies.map(company=><label key={company}><input type="checkbox" checked={form.companies.includes(company)} onChange={()=>toggleCompany(company)}/>{company}</label>)}</div></div><label className="textarea-label">운영 설명<textarea value={form.description} onChange={e=>patch({description:e.target.value})} placeholder="수집 목적과 담당자가 확인할 사항을 적어 주세요."/></label>{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div>
     <div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button className="primary-button" type="submit"><Icon name="check" size={16}/>저장</button></div>
@@ -552,17 +661,126 @@ function ComparisonCard({ label, record, current, threshold }: { label: string; 
 
 function SummaryTile({label,value,suffix,icon,tone="blue"}:{label:string;value:number;suffix:string;icon:IconName;tone?:string}){return <div className="summary-tile"><div className={`summary-icon ${tone}`}><Icon name={icon} size={19}/></div><span>{label}</span><strong>{value}<small>{suffix}</small></strong></div>}
 
-function Inventory({records,showToast}:{records:ActivityRecord[];showToast:(m:string)=>void}){
+function Inventory({records,targets,onNavigate,showToast}:{records:ActivityRecord[];targets:ReductionTarget[];onNavigate:(view:View)=>void;showToast:(m:string)=>void}){
   const years=[...new Set(records.map(r=>r.period.slice(0,4)))].sort().reverse(); const [year,setYear]=useState(years[0]??"2026"); const [scope,setScope]=useState<Scope|null>(null); const base=records.filter(r=>r.period.startsWith(year)&&r.status==="확정"&&r.active!==false); const rows=scope?base.filter(r=>r.scope===scope):base; const total=rows.reduce((s,r)=>s+r.emissions,0);
   const byCompany=companies.map(name=>({name,value:rows.filter(r=>r.company===name).reduce((s,r)=>s+r.emissions,0)})); const max=Math.max(1,...byCompany.map(x=>x.value));
+  const approvedTarget=targets.find(target=>target.status==="승인"&&target.company==="그룹 전체")??targets.find(target=>target.status==="승인"); const targetRows=approvedTarget?base.filter(r=>approvedTarget.scopes.includes(r.scope)&&(approvedTarget.company==="그룹 전체"||r.company===approvedTarget.company)):[]; const targetActual=targetRows.reduce((sum,row)=>sum+row.emissions,0); const targetMonths=new Set(targetRows.map(row=>row.period)).size; const annualized=targetMonths?targetActual/targetMonths*12:0; const pathRate=approvedTarget?Math.max(0,Math.min(1,(Number(year)-approvedTarget.baselineYear)/Math.max(1,approvedTarget.targetYear-approvedTarget.baselineYear))):0; const pathway=approvedTarget?approvedTarget.baselineEmissions-(approvedTarget.baselineEmissions-approvedTarget.targetEmissions)*pathRate:0; const pathReduction=approvedTarget?approvedTarget.baselineEmissions-pathway:0; const targetProgress=approvedTarget&&targetMonths&&pathReduction>0?Math.max(0,Math.min(100,Math.round((approvedTarget.baselineEmissions-annualized)/pathReduction*100))):0;
   const exportData=()=>{downloadCsv("sems2_ghg_inventory.csv",["귀속월","법인","사업장","Scope","활동자료","배출원","사용량","단위","배출량(tCO2e)","상태"],rows.map(r=>[r.period,r.company,r.site,r.scope,r.category,r.source,r.usage,r.unit,r.emissions,r.status]));showToast("산정 내역을 내려받았습니다.");};
   return <><PageHeader eyebrow="GHG INVENTORY" title="온실가스 인벤토리" description="활동자료와 배출계수를 연결해 Scope별 배출량을 산정하고 추적합니다."><label className="year-select"><Icon name="calendar" size={17}/><select value={year} onChange={e=>setYear(e.target.value)}>{years.map(y=><option key={y}>{y}</option>)}</select></label><button className="secondary-button" onClick={exportData}><Icon name="download" size={17}/>산정 내역 다운로드</button></PageHeader>
-    <section className="inventory-hero"><div><span>{year}년 {scope??"전체 Scope"} 누적 배출량</span><div className="inventory-total"><strong>{formatNumber(total,1)}</strong><em>tCO₂e</em></div><p><b>확정 활동자료 {rows.length}건</b> · 검토 확정 데이터만 반영</p></div><div className="target-block"><div className="target-copy"><span>2030 감축목표 진행률</span><strong>32.1%</strong></div><div className="target-track"><span style={{width:"32.1%"}}/><i style={{left:"72%"}}/></div><div className="target-labels"><span>기준연도 2023</span><span>2030 목표 -15%</span></div></div></section>
+    <section className="inventory-hero"><div><span>{year}년 {scope??"전체 Scope"} 누적 배출량</span><div className="inventory-total"><strong>{formatNumber(total,1)}</strong><em>tCO₂e</em></div><p><b>확정 활동자료 {rows.length}건</b> · 검토 확정 데이터만 반영</p></div>{approvedTarget?<div className="target-block"><div className="target-copy"><span>{approvedTarget.targetYear} 감축경로 달성도</span><strong>{targetMonths?`${targetProgress}%`:"산정 대기"}</strong></div><div className="target-track"><span style={{width:`${targetProgress}%`}}/><i style={{left:"100%"}}/></div><div className="target-labels"><span>{year} 경로 {formatNumber(pathway,0)} t</span><span>{targetMonths?`연환산 ${formatNumber(annualized,0)} t`:"확정 실적 없음"}</span></div><button className="target-link-button" onClick={()=>onNavigate("targets")}>목표 산정근거·이행계획 보기 <Icon name="arrow" size={14}/></button></div>:<div className="target-block empty-target"><div className="target-copy"><span>연결된 감축목표 없음</span><strong>목표 설정 필요</strong></div><p>확정 인벤토리를 기준으로 목표를 먼저 수립해 주세요.</p><button className="target-link-button" onClick={()=>onNavigate("targets")}>감축목표 설정 <Icon name="arrow" size={14}/></button></div>}</section>
     <div className="scope-filter-note"><span>Scope 카드를 누르면 법인별 배출량이 해당 범위로 필터링됩니다.</span>{scope&&<button onClick={()=>setScope(null)}>전체 Scope 보기</button>}</div>
     <section className="inventory-grid"><article className="card"><CardHeader title="Scope별 인벤토리" subtitle="검토 확정 자료 기준"/><div className="inventory-scope-list">{(["Scope 1","Scope 2","Scope 3"] as Scope[]).map((s,i)=><InventoryScope key={s} number={`0${i+1}`} label={s} desc={i===0?"고정연소 · 이동연소 · 비산배출":i===1?"구매 전력 · 구매 열·스팀":"공급망 · 통근 · 출장 · 폐기물"} value={base.filter(r=>r.scope===s).reduce((a,r)=>a+r.emissions,0)} color={i===0?"dark":i===1?"mid":"light"} active={scope===s} onClick={()=>setScope(scope===s?null:s)}/>)}</div></article><article className="card"><CardHeader title="법인별 배출량" subtitle={`${year}년 ${scope??"전체 Scope"} 기준`} action="단위: tCO₂e"/><div className="horizontal-bars">{byCompany.map(item=><div key={item.name}><div><strong>{item.name}</strong><span>{formatNumber(item.value,1)}</span></div><p><span style={{width:`${Math.max(item.value/max*100,item.value?4:0)}%`}}/></p></div>)}</div></article></section>
     <section className="card formula-card"><CardHeader title="배출량 산정 구조" subtitle="원천자료부터 확정 데이터까지의 연결 관계"/><div className="formula-flow"><div><span className="flow-number">1</span><strong>활동자료</strong><small>Scope별 사용량 입력</small></div><Icon name="arrow"/><div><span className="flow-number">2</span><strong>배출계수</strong><small>기준정보에서 자동 적용</small></div><Icon name="arrow"/><div><span className="flow-number">3</span><strong>배출량 산정</strong><small>사용량 × 계수 ÷ 1,000</small></div><Icon name="arrow"/><div className="highlight"><span className="flow-number">4</span><strong>검토·확정</strong><small>증빙 연결 및 이력 보관</small></div></div></section></>;
 }
 function InventoryScope({number,label,desc,value,color,active,onClick}:{number:string;label:string;desc:string;value:number;color:string;active:boolean;onClick:()=>void}){return <button className={`inventory-scope ${active?"selected":""}`} onClick={onClick}><span className={`scope-number ${color}`}>{number}</span><div><strong>{label}</strong><p>{desc}</p></div><em>{formatNumber(value,1)}<small> tCO₂e</small></em><Icon name="chevron" size={17}/></button>}
+
+function targetInventory(records:ActivityRecord[],company:string,scopes:Scope[],year:number){
+  return records.filter(record=>record.status==="확정"&&record.active!==false&&record.period.startsWith(String(year))&&scopes.includes(record.scope)&&(company==="그룹 전체"||record.company===company)).reduce((sum,record)=>sum+record.emissions,0);
+}
+function targetPath(target:ReductionTarget){
+  const duration=Math.max(1,target.targetYear-target.baselineYear);
+  return Array.from({length:duration+1},(_,index)=>{const year=target.baselineYear+index;const ratio=index/duration;return {year,value:target.baselineEmissions-(target.baselineEmissions-target.targetEmissions)*ratio};});
+}
+function normalizePlanStatus(plan:ReductionPlan):PlanStatus{
+  if(plan.progress>=100)return "완료";
+  if(plan.endDate&&new Date(`${plan.endDate}T23:59:59`).getTime()<Date.now())return "지연";
+  return plan.progress>0?"진행중":"계획";
+}
+
+function TargetsAndPlans({targets,plans,records,organizations,onTargetsChange,onPlansChange,addAudit,showToast}:{targets:ReductionTarget[];plans:ReductionPlan[];records:ActivityRecord[];organizations:Record<string,string[]>;onTargetsChange:(items:ReductionTarget[])=>void;onPlansChange:(items:ReductionPlan[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(message:string)=>void}){
+  const [selectedId,setSelectedId]=useState(targets.find(target=>target.status==="승인")?.id??targets[0]?.id??"");
+  const [targetModal,setTargetModal]=useState<ReductionTarget|null|"new">(null);
+  const [planModal,setPlanModal]=useState<ReductionPlan|null|"new">(null);
+  const [planFilter,setPlanFilter]=useState("전체");
+  const selected=targets.find(target=>target.id===selectedId)??targets[0]??null;
+  const linkedPlans=selected?plans.filter(plan=>plan.targetId===selected.id):[];
+  const visiblePlans=linkedPlans.filter(plan=>planFilter==="전체"||plan.status===planFilter);
+  const required=selected?selected.baselineEmissions-selected.targetEmissions:0;
+  const expected=linkedPlans.reduce((sum,plan)=>sum+plan.expectedReduction,0);
+  const actual=linkedPlans.reduce((sum,plan)=>sum+plan.actualReduction,0);
+  const coverage=required?Math.min(100,Math.round(expected/required*100)):0;
+  const delayed=linkedPlans.filter(plan=>normalizePlanStatus(plan)==="지연").length;
+  const pathway=selected?targetPath(selected):[];
+  const saveTarget=(target:ReductionTarget)=>{
+    const isNew=target.id==="NEW-TARGET";
+    const before=targets.find(item=>item.id===target.id);
+    const materialChanged=Boolean(before?.status==="승인"&&(before.company!==target.company||before.baselineYear!==target.baselineYear||before.targetYear!==target.targetYear||before.reductionRate!==target.reductionRate||before.baselineEmissions!==target.baselineEmissions||before.scopes.join("|")!==target.scopes.join("|")));
+    const normalized={...target,id:isNew?`TG-${String(Math.max(0,...targets.map(item=>Number(item.id.replace(/\D/g,""))||0))+1).padStart(3,"0")}`:target.id,status:materialChanged?"초안" as TargetStatus:target.status,approvedAt:materialChanged?undefined:target.approvedAt,updatedAt:nowLabel()};
+    onTargetsChange(isNew?[normalized,...targets]:targets.map(item=>item.id===normalized.id?normalized:item));
+    setSelectedId(normalized.id);setTargetModal(null);
+    addAudit(isNew?"감축목표 수립":"감축목표 수정",normalized.name,`${normalized.baselineYear}년 ${formatNumber(normalized.baselineEmissions,1)} tCO₂e 기준 · ${normalized.targetYear}년 ${normalized.reductionRate}% 감축`);
+    showToast(isNew?"새 감축목표를 수립했습니다.":materialChanged?"승인 목표의 핵심 조건이 바뀌어 초안으로 전환했습니다.":"감축목표를 수정했습니다.");
+  };
+  const approveTarget=(target:ReductionTarget)=>{
+    if(target.baselineEmissions<=0){showToast("확정 인벤토리 기준값이 없어 승인할 수 없습니다.");return;}
+    onTargetsChange(targets.map(item=>item.id===target.id?{...item,status:"승인" as TargetStatus,approvedAt:new Date().toISOString().slice(0,10),updatedAt:nowLabel()}:item));
+    addAudit("감축목표 승인",target.name,`${target.targetYear}년 ${target.reductionRate}% 감축목표를 승인했습니다.`);
+    showToast("감축목표를 승인했습니다. 이제 이행계획을 연결할 수 있습니다.");
+  };
+  const changeTargetStatus=(target:ReductionTarget,status:TargetStatus)=>{
+    if(status==="종료"&&!window.confirm("이 목표를 종료 상태로 전환하시겠습니까? 기존 이행계획과 실적은 유지됩니다."))return;
+    onTargetsChange(targets.map(item=>item.id===target.id?{...item,status,updatedAt:nowLabel()}:item));
+    addAudit(status==="종료"?"감축목표 종료":"감축목표 재개",target.name,status==="종료"?"목표를 종료 상태로 전환하고 기존 이력은 유지했습니다.":"재검토를 위해 목표를 초안 상태로 다시 열었습니다.");
+    showToast(status==="종료"?"감축목표를 종료 상태로 전환했습니다.":"감축목표를 초안 상태로 다시 열었습니다.");
+  };
+  const deleteTarget=(target:ReductionTarget)=>{
+    if(plans.some(plan=>plan.targetId===target.id)){showToast("연결된 이행계획이 있어 목표를 삭제할 수 없습니다.");return;}
+    if(!window.confirm("이 감축목표를 삭제하시겠습니까?"))return;
+    const next=targets.filter(item=>item.id!==target.id);onTargetsChange(next);setSelectedId(next[0]?.id??"");setTargetModal(null);addAudit("감축목표 삭제",target.name,"연결된 이행계획이 없는 목표를 삭제했습니다.");showToast("감축목표를 삭제했습니다.");
+  };
+  const savePlan=(plan:ReductionPlan)=>{
+    const isNew=plan.id==="NEW-PLAN";
+    const normalized={...plan,id:isNew?`RP-${String(Math.max(0,...plans.map(item=>Number(item.id.replace(/\D/g,""))||0))+1).padStart(3,"0")}`:plan.id,status:normalizePlanStatus(plan),updatedAt:nowLabel()};
+    onPlansChange(isNew?[normalized,...plans]:plans.map(item=>item.id===normalized.id?normalized:item));setPlanModal(null);setSelectedId(normalized.targetId);
+    addAudit(isNew?"감축과제 등록":"감축과제 수정",normalized.title,`예상 감축 ${formatNumber(normalized.expectedReduction,1)} tCO₂e · 진척도 ${normalized.progress}%`);
+    showToast(isNew?"새 감축과제를 등록했습니다.":"감축과제 실적을 수정했습니다.");
+  };
+  const deletePlan=(plan:ReductionPlan)=>{
+    if(!window.confirm("이 감축과제를 삭제하시겠습니까?"))return;
+    onPlansChange(plans.filter(item=>item.id!==plan.id));setPlanModal(null);addAudit("감축과제 삭제",plan.title,"목표에 연결된 이행계획에서 과제를 삭제했습니다.");showToast("감축과제를 삭제했습니다.");
+  };
+  const exportPlans=()=>{downloadCsv("SEMS_reduction_plan.csv",["목표","과제","법인","사업장","Scope","유형","담당부서","담당자","시작일","종료일","예상감축량","실제감축량","예산","진척도","상태","검증자료"],visiblePlans.map(plan=>[selected?.name??"",plan.title,plan.company,plan.site,plan.scope,plan.category,plan.department,plan.owner,plan.startDate,plan.endDate,plan.expectedReduction,plan.actualReduction,plan.budget,plan.progress,normalizePlanStatus(plan),plan.verification]));showToast("현재 목표의 이행계획을 내려받았습니다.");};
+  return <><PageHeader eyebrow="TARGET & ACTION PLAN" title="감축목표·이행계획" description="확정 인벤토리를 기준으로 목표를 수립하고, 필요 감축량을 실행과제로 분해해 실적까지 관리합니다."><button className="secondary-button" onClick={()=>setTargetModal("new")}><Icon name="target" size={17}/>새 목표 설정</button><button className="primary-button" onClick={()=>selected?setPlanModal("new"):showToast("감축목표를 먼저 설정해 주세요.")} disabled={!selected}><Icon name="plus" size={17}/>감축과제 등록</button></PageHeader>
+    <section className="logic-flow"><div><span>1</span><strong>인벤토리 확정</strong><small>검토 완료 기준값</small></div><Icon name="arrow"/><div className={targets.length?"done":""}><span>2</span><strong>목표 수립·승인</strong><small>{targets.filter(item=>item.status==="승인").length}건 승인</small></div><Icon name="arrow"/><div className={plans.length?"done":""}><span>3</span><strong>이행계획 분해</strong><small>{plans.length}개 감축과제</small></div><Icon name="arrow"/><div className={actual>0?"done":""}><span>4</span><strong>실적·증빙 입력</strong><small>{formatNumber(actual,0)} t 감축 확인</small></div><Icon name="arrow"/><div className={delayed?"warning":""}><span>5</span><strong>분석·보완조치</strong><small>{delayed?`지연 ${delayed}건`:"정상 이행"}</small></div></section>
+    <section className="target-summary"><SummaryTile label="승인 목표" value={targets.filter(item=>item.status==="승인").length} suffix="건" icon="target" tone="green"/><SummaryTile label="연결 과제" value={linkedPlans.length} suffix="건" icon="list"/><SummaryTile label="과제 확보율" value={coverage} suffix="%" icon="check" tone={coverage>=100?"green":"amber"}/><SummaryTile label="지연 과제" value={delayed} suffix="건" icon="alert" tone={delayed?"red":"green"}/></section>
+    <section className="target-workspace"><aside className="card target-list"><CardHeader title="감축목표" subtitle="목표를 선택하면 산정근거와 이행계획이 연결됩니다." action={<button className="outline-small" onClick={()=>setTargetModal("new")}><Icon name="plus" size={14}/>추가</button>}/><div>{targets.map(target=><button key={target.id} className={selected?.id===target.id?"active":""} onClick={()=>setSelectedId(target.id)}><span className={`target-state ${target.status}`}>{target.status}</span><strong>{target.name}</strong><p>{target.company} · {target.scopes.join("·")}</p><div><span>{target.baselineYear} → {target.targetYear}</span><b>-{target.reductionRate}%</b></div></button>)}{!targets.length&&<div className="empty-state compact"><Icon name="target"/><strong>등록된 감축목표가 없습니다.</strong></div>}</div></aside>
+      <div className="target-detail-column">{selected?<><article className="card target-detail-card"><div className="target-detail-head"><div><span className={`target-state ${selected.status}`}>{selected.status}</span><h2>{selected.name}</h2><p>{selected.description}</p></div><div className="row-actions">{selected.status==="초안"&&<button className="primary-button compact" onClick={()=>approveTarget(selected)}><Icon name="check" size={15}/>목표 승인</button>}{selected.status==="승인"&&<button className="secondary-button compact" onClick={()=>changeTargetStatus(selected,"종료")}><Icon name="lock" size={15}/>목표 종료</button>}{selected.status==="종료"&&<button className="secondary-button compact" onClick={()=>changeTargetStatus(selected,"초안")}><Icon name="refresh" size={15}/>다시 열기</button>}<button className="secondary-button compact" onClick={()=>setTargetModal(selected)}><Icon name="edit" size={15}/>수정</button></div></div><div className="target-number-grid"><div><span>기준연도 배출량</span><strong>{formatNumber(selected.baselineEmissions,1)}<small> tCO₂e</small></strong><em>{selected.baselineYear}년 확정 인벤토리</em></div><div><span>목표연도 배출량</span><strong>{formatNumber(selected.targetEmissions,1)}<small> tCO₂e</small></strong><em>{selected.targetYear}년 · {selected.reductionRate}% 감축</em></div><div><span>필요 감축량</span><strong>{formatNumber(required,1)}<small> tCO₂e</small></strong><em>기준배출량 - 목표배출량</em></div><div className={coverage<100?"warning":""}><span>과제 확보량</span><strong>{formatNumber(expected,1)}<small> tCO₂e</small></strong><em>{coverage}% 확보 · {formatNumber(Math.max(0,required-expected),1)} t 추가 필요</em></div></div><div className="pathway-head"><div><strong>연도별 감축경로</strong><span>기준연도와 목표연도 사이를 선형 경로로 관리합니다.</span></div><span className="target-owner">담당 {selected.owner}</span></div><div className="pathway-table">{pathway.map((point,index)=><div key={point.year} className={point.year===selected.baselineYear||point.year===selected.targetYear?"anchor":""}><span>{point.year}</span><i style={{height:`${Math.max(10,point.value/selected.baselineEmissions*74)}px`}}/><strong>{formatNumber(point.value,0)}</strong><small>{index===0?"기준":point.year===selected.targetYear?"목표":`-${formatNumber((selected.baselineEmissions-point.value)/selected.baselineEmissions*100,1)}%`}</small></div>)}</div></article>
+        <article className={`coverage-card card ${coverage<100?"needs-action":"complete"}`}><div><span><Icon name={coverage<100?"alert":"check"} size={19}/></span><div><strong>{coverage<100?"필요 감축량을 충족할 추가 과제가 필요합니다.":"필요 감축량을 과제로 모두 확보했습니다."}</strong><p>필요 {formatNumber(required,0)} t · 확보 {formatNumber(expected,0)} t · 실제 확인 {formatNumber(actual,0)} t</p></div></div><div className="coverage-track"><span style={{width:`${coverage}%`}}/></div><button onClick={()=>setPlanModal("new")}>{coverage<100?"추가 감축과제 수립":"이행계획 점검"} <Icon name="arrow" size={15}/></button></article>
+        <article className="card plan-card"><CardHeader title="목표 연계 이행계획" subtitle="과제별 예상·실제 감축량, 일정과 검증자료를 관리합니다." action={<div className="plan-actions"><button className="outline-small" onClick={exportPlans}><Icon name="download" size={14}/>내보내기</button><button className="outline-small" onClick={()=>setPlanModal("new")}><Icon name="plus" size={14}/>과제 등록</button></div>}/><div className="status-tabs plan-tabs">{["전체","계획","진행중","지연","완료"].map(status=><button key={status} className={planFilter===status?"active":""} onClick={()=>setPlanFilter(status)}>{status}<span>{status==="전체"?linkedPlans.length:linkedPlans.filter(plan=>normalizePlanStatus(plan)===status).length}</span></button>)}</div><div className="table-scroll"><table className="data-table plan-table"><thead><tr><th>감축과제</th><th>법인 / 사업장</th><th>Scope</th><th>일정</th><th className="align-right">예상 감축</th><th className="align-right">실제 감축</th><th>진척도</th><th>상태</th><th>작업</th></tr></thead><tbody>{visiblePlans.map(plan=>{const status=normalizePlanStatus(plan);return <tr key={plan.id}><td><strong>{plan.title}</strong><span>{plan.category} · {plan.department}</span></td><td><strong>{plan.company}</strong><span>{plan.site}</span></td><td><span className={`scope-tag s${plan.scope.slice(-1)}`}>{plan.scope}</span></td><td><strong>{plan.startDate.slice(0,7)}</strong><span>~ {plan.endDate.slice(0,7)}</span></td><td className="align-right"><strong>{formatNumber(plan.expectedReduction,1)}</strong><span>tCO₂e</span></td><td className="align-right"><strong>{formatNumber(plan.actualReduction,1)}</strong><span>tCO₂e</span></td><td><div className="inline-progress plan-progress"><span><i style={{width:`${plan.progress}%`}}/></span><strong>{plan.progress}%</strong></div></td><td><StatusBadge status={status}/></td><td><button className="outline-small" onClick={()=>setPlanModal(plan)}><Icon name="edit" size={14}/>실적 입력</button></td></tr>})}</tbody></table>{!visiblePlans.length&&<div className="empty-state"><Icon name="list"/><strong>조건에 맞는 감축과제가 없습니다.</strong><p>목표의 필요 감축량을 사업장별 실행과제로 나눠 등록해 주세요.</p></div>}</div></article></>:<div className="card empty-state target-empty"><Icon name="target"/><strong>감축목표를 먼저 설정해 주세요.</strong><p>기준연도 확정 인벤토리를 불러오면 목표배출량과 필요 감축량이 자동 계산됩니다.</p><button className="primary-button" onClick={()=>setTargetModal("new")}><Icon name="plus" size={16}/>새 목표 설정</button></div>}</div>
+    </section>
+    {targetModal&&<TargetForm target={targetModal==="new"?null:targetModal} records={records} linkedPlans={targetModal==="new"?0:plans.filter(plan=>plan.targetId===targetModal.id).length} onClose={()=>setTargetModal(null)} onSave={saveTarget} onDelete={targetModal==="new"?undefined:()=>deleteTarget(targetModal)}/>}
+    {planModal&&selected&&<PlanForm plan={planModal==="new"?null:planModal} targets={targets} selectedTargetId={selected.id} organizations={organizations} onClose={()=>setPlanModal(null)} onSave={savePlan} onDelete={planModal==="new"?undefined:()=>deletePlan(planModal)}/>}
+  </>;
+}
+
+function TargetForm({target,records,linkedPlans,onClose,onSave,onDelete}:{target:ReductionTarget|null;records:ActivityRecord[];linkedPlans:number;onClose:()=>void;onSave:(target:ReductionTarget)=>void;onDelete?:()=>void}){
+  const confirmedYears=[...new Set(records.filter(record=>record.status==="확정"&&record.active!==false).map(record=>Number(record.period.slice(0,4))))].sort((a,b)=>b-a);
+  const firstYear=confirmedYears[0]??new Date().getFullYear();
+  const defaultScopes:Scope[]=["Scope 1","Scope 2"];
+  const defaultBaseline=targetInventory(records,"그룹 전체",defaultScopes,firstYear);
+  const [form,setForm]=useState<ReductionTarget>(target??{id:"NEW-TARGET",name:"",company:"그룹 전체",scopes:defaultScopes,baselineYear:firstYear,baselineEmissions:defaultBaseline,targetYear:firstYear+5,reductionRate:30,targetEmissions:defaultBaseline*.7,owner:"기획팀",status:"초안",description:"",updatedAt:"방금 전"});
+  const [error,setError]=useState("");
+  const recalculate=(next:Partial<ReductionTarget>,reloadBaseline=false)=>{setForm(current=>{const merged={...current,...next};const baseline=reloadBaseline?targetInventory(records,merged.company,merged.scopes,merged.baselineYear):merged.baselineEmissions;return {...merged,baselineEmissions:baseline,targetEmissions:Math.round(baseline*(1-merged.reductionRate/100)*100)/100};});setError("");};
+  const toggleScope=(scope:Scope)=>{const scopes=form.scopes.includes(scope)?form.scopes.filter(item=>item!==scope):[...form.scopes,scope];recalculate({scopes},true);};
+  const submit=(event:FormEvent)=>{event.preventDefault();if(!form.scopes.length){setError("대상 Scope를 한 개 이상 선택해 주세요.");return;}if(form.baselineEmissions<=0){setError("선택한 기준연도의 확정 인벤토리가 없습니다. 인벤토리를 먼저 확정해 주세요.");return;}if(form.targetYear<=form.baselineYear){setError("목표연도는 기준연도보다 뒤여야 합니다.");return;}if(form.reductionRate<=0||form.reductionRate>=100){setError("감축률은 0% 초과 100% 미만으로 설정해 주세요.");return;}onSave(form);};
+  return <Overlay title={target?"감축목표 수정":"새 감축목표 설정"} eyebrow="REDUCTION TARGET" description="기준값은 확정 인벤토리에서 불러오며 목표배출량과 필요 감축량은 자동 계산됩니다." onClose={onClose}><form onSubmit={submit}><div className="form-section"><h3><span>1</span>목표 범위</h3><div className="form-grid"><label className="full-span">목표명<input value={form.name} onChange={event=>recalculate({name:event.target.value})} placeholder="예: 세원그룹 Scope 1·2 2030 감축목표" required/></label><label>대상 조직<select value={form.company} onChange={event=>recalculate({company:event.target.value},true)}><option>그룹 전체</option>{companies.map(company=><option key={company}>{company}</option>)}</select></label><label>목표 담당부서<input value={form.owner} onChange={event=>recalculate({owner:event.target.value})} required/></label></div><div className="check-group"><strong>대상 Scope</strong><div>{(["Scope 1","Scope 2","Scope 3"] as Scope[]).map(scope=><label key={scope}><input type="checkbox" checked={form.scopes.includes(scope)} onChange={()=>toggleScope(scope)}/>{scope}</label>)}</div></div></div>
+    <div className="form-section"><h3><span>2</span>기준연도와 감축수준</h3><div className="form-grid"><label>기준연도<select value={form.baselineYear} onChange={event=>recalculate({baselineYear:Number(event.target.value)},true)}>{confirmedYears.map(year=><option key={year}>{year}</option>)}{target&&!confirmedYears.includes(target.baselineYear)&&<option>{target.baselineYear}</option>}</select></label><label>기준연도 배출량<div className="locked-input"><input value={formatNumber(form.baselineEmissions,2)} readOnly tabIndex={-1}/><Icon name="lock" size={15}/></div><small className="field-help">선택 범위의 확정 인벤토리 합계 · tCO₂e</small></label><label>목표연도<input type="number" min={form.baselineYear+1} max={2050} value={form.targetYear} onChange={event=>recalculate({targetYear:Number(event.target.value)})} required/></label><label>감축률<div className="input-unit"><input type="number" min="0.1" max="99.9" step="0.1" value={form.reductionRate} onChange={event=>recalculate({reductionRate:Number(event.target.value)})} required/><span>%</span></div></label><div className="calculated-field"><span>목표배출량</span><strong>{formatNumber(form.targetEmissions,1)} <small>tCO₂e</small></strong><em>기준배출량 × (1 - 감축률)</em></div><div className="calculated-field reduction"><span>필요 감축량</span><strong>{formatNumber(form.baselineEmissions-form.targetEmissions,1)} <small>tCO₂e</small></strong><em>이행계획으로 확보해야 할 총량</em></div></div></div>
+    <div className="form-section"><h3><span>3</span>운영 근거</h3><label className="textarea-label">목표 설명·산정 근거<textarea value={form.description} onChange={event=>recalculate({description:event.target.value})} placeholder="목표 경계, 적용 기준, 제외 범위와 경영진 승인 근거를 적어 주세요." required/></label><div className="target-form-note"><Icon name="alert" size={16}/><span>{form.status==="승인"?"승인된 목표의 수치를 변경하면 변경 이력에 남습니다. 필요 시 내부 승인 절차를 다시 진행해 주세요.":"저장 후 목표 목록에서 승인해야 공식 이행목표로 집계됩니다."}</span></div>{linkedPlans>0&&<div className="target-form-note linked"><Icon name="list" size={16}/><span>이 목표에 {linkedPlans}개의 이행계획이 연결되어 있습니다. 목표 범위를 바꾸면 과제 범위도 함께 확인해 주세요.</span></div>}{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>목표 저장</button></div></div></form></Overlay>;
+}
+
+function PlanForm({plan,targets,selectedTargetId,organizations,onClose,onSave,onDelete}:{plan:ReductionPlan|null;targets:ReductionTarget[];selectedTargetId:string;organizations:Record<string,string[]>;onClose:()=>void;onSave:(plan:ReductionPlan)=>void;onDelete?:()=>void}){
+  const target=targets.find(item=>item.id===(plan?.targetId??selectedTargetId))??targets[0];
+  const defaultCompany=target.company==="그룹 전체"?companies[0]:target.company;
+  const [form,setForm]=useState<ReductionPlan>(plan??{id:"NEW-PLAN",targetId:target.id,title:"",company:defaultCompany,site:organizations[defaultCompany]?.[0]??"",scope:target.scopes[0],category:"에너지 효율",department:"",owner:"",startDate:`${Math.max(new Date().getFullYear(),target.baselineYear+1)}-01-01`,endDate:`${target.targetYear}-12-31`,expectedReduction:0,actualReduction:0,budget:0,progress:0,status:"계획",verification:"",description:"",updatedAt:"방금 전"});
+  const [error,setError]=useState("");
+  const selectedTarget=targets.find(item=>item.id===form.targetId)??target;
+  const patch=(next:Partial<ReductionPlan>)=>{setForm(current=>({...current,...next}));setError("");};
+  const changeTarget=(id:string)=>{const nextTarget=targets.find(item=>item.id===id);if(!nextTarget)return;const company=nextTarget.company==="그룹 전체"?companies[0]:nextTarget.company;setForm(current=>({...current,targetId:id,company,site:organizations[company]?.[0]??"",scope:nextTarget.scopes[0],endDate:`${nextTarget.targetYear}-12-31`}));};
+  const submit=(event:FormEvent)=>{event.preventDefault();if(form.startDate>form.endDate){setError("과제 종료일은 시작일보다 빠를 수 없습니다.");return;}if(Number(form.startDate.slice(0,4))<=selectedTarget.baselineYear||Number(form.endDate.slice(0,4))>selectedTarget.targetYear){setError(`과제 일정은 기준연도 이후부터 목표연도 ${selectedTarget.targetYear}년 안에 설정해 주세요.`);return;}if(form.expectedReduction<=0){setError("예상 감축량을 0보다 크게 입력해 주세요.");return;}if(form.actualReduction<0){setError("실제 감축량은 0 이상이어야 합니다.");return;}onSave({...form,status:normalizePlanStatus(form)});};
+  return <Overlay title={plan?"감축과제·실적 수정":"새 감축과제 등록"} eyebrow="REDUCTION ACTION" description="승인 목표의 필요 감축량을 실행 단위로 나누고 담당·예산·일정·검증자료를 지정합니다." onClose={onClose}><form onSubmit={submit}><div className="form-section"><h3><span>1</span>연결 목표와 과제 범위</h3><div className="form-grid"><label className="full-span">연결 감축목표<select value={form.targetId} onChange={event=>changeTarget(event.target.value)}>{targets.filter(item=>item.status!=="종료"||item.id===form.targetId).map(item=><option key={item.id} value={item.id}>{item.name} · {item.status}</option>)}</select></label><label className="full-span">과제명<input value={form.title} onChange={event=>patch({title:event.target.value})} placeholder="예: 경산공장 고효율 공조설비 교체" required/></label><label>법인<select value={form.company} disabled={selectedTarget.company!=="그룹 전체"} onChange={event=>{const company=event.target.value;patch({company,site:organizations[company]?.[0]??""})}}>{companies.filter(company=>selectedTarget.company==="그룹 전체"||company===selectedTarget.company).map(company=><option key={company}>{company}</option>)}</select></label><label>사업장<select value={form.site} onChange={event=>patch({site:event.target.value})}>{(organizations[form.company]??[]).map(site=><option key={site}>{site}</option>)}</select></label><label>Scope<select value={form.scope} onChange={event=>patch({scope:event.target.value as Scope})}>{selectedTarget.scopes.map(scope=><option key={scope}>{scope}</option>)}</select></label><label>감축 유형<select value={form.category} onChange={event=>patch({category:event.target.value})}><option>에너지 효율</option><option>재생에너지</option><option>연료 전환</option><option>공정 개선</option><option>비산배출</option><option>이동연소</option><option>공급망 협력</option><option>기타</option></select></label></div></div>
+    <div className="form-section"><h3><span>2</span>일정·담당·예산</h3><div className="form-grid"><label>시작일<input type="date" value={form.startDate} onChange={event=>patch({startDate:event.target.value})} required/></label><label>종료일<input type="date" value={form.endDate} onChange={event=>patch({endDate:event.target.value})} required/></label><label>담당 부서<input value={form.department} onChange={event=>patch({department:event.target.value})} required/></label><label>담당자<input value={form.owner} onChange={event=>patch({owner:event.target.value})} required/></label><label>예상 감축량<div className="input-unit"><input type="number" min="0" step="0.1" value={form.expectedReduction||""} onChange={event=>patch({expectedReduction:Number(event.target.value)})} required/><span>tCO₂e</span></div></label><label>예산<div className="input-unit"><input type="number" min="0" step="10000" value={form.budget||""} onChange={event=>patch({budget:Number(event.target.value)})}/><span>원</span></div></label></div></div>
+    <div className="form-section"><h3><span>3</span>이행 실적과 검증</h3><div className="form-grid"><label>진척도<div className="input-unit"><input type="number" min="0" max="100" value={form.progress} onChange={event=>patch({progress:Number(event.target.value)})}/><span>%</span></div></label><label>실제 확인 감축량<div className="input-unit"><input type="number" min="0" step="0.1" value={form.actualReduction||""} onChange={event=>patch({actualReduction:Number(event.target.value)})}/><span>tCO₂e</span></div></label><label className="full-span">검증자료·확인방법<input value={form.verification} onChange={event=>patch({verification:event.target.value})} placeholder="예: 설비별 전력계, 개선 전후 동월 사용량, 준공검사서" required/></label><label className="full-span textarea-label">실행내용·실적 메모<textarea value={form.description} onChange={event=>patch({description:event.target.value})} placeholder="주요 실행 단계, 실적 산정 기준, 지연 사유와 후속조치를 적어 주세요." required/></label></div><div className="plan-status-preview"><span>저장 시 상태</span><StatusBadge status={normalizePlanStatus(form)}/><p>진척도와 종료일을 기준으로 계획·진행중·지연·완료 상태가 자동 판정됩니다.</p></div>{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>{plan?"실적 저장":"과제 등록"}</button></div></div></form></Overlay>;
+}
 
 function Evidence({items,onChange,showToast}:{items:EvidenceItem[];onChange:(x:EvidenceItem[])=>void;showToast:(m:string)=>void}){
   const [status,setStatus]=useState("전체"); const [search,setSearch]=useState(""); const [requestOpen,setRequestOpen]=useState(false); const [editing,setEditing]=useState<EvidenceItem|null>(null); const filtered=items.filter(i=>(status==="전체"||i.status===status)&&`${i.title} ${i.category} ${i.owner}`.toLowerCase().includes(search.toLowerCase()));
@@ -629,7 +847,7 @@ function Settings({factors,onFactorsChange,criteria,onCriteriaChange,noticePrefs
 }
 function OrganizationSettings({organizations,onChange,showToast}:{organizations:Record<string,string[]>;onChange:(x:Record<string,string[]>)=>void;showToast:(m:string)=>void}){const [selected,setSelected]=useState("세원정공");const [adding,setAdding]=useState(false);const [newSite,setNewSite]=useState("");const addSite=()=>{const name=newSite.trim();if(!name)return;if(organizations[selected].includes(name)){showToast("이미 등록된 사업장입니다.");return;}onChange({...organizations,[selected]:[...organizations[selected],name]});setNewSite("");setAdding(false);showToast(`${selected}에 ${name}을(를) 추가했습니다.`);};const removeSite=(site:string)=>{if(organizations[selected].length<=1){showToast("법인별 사업장은 최소 한 개가 필요합니다.");return;}if(!window.confirm(`${site}을(를) 사업장 목록에서 삭제하시겠습니까?`))return;onChange({...organizations,[selected]:organizations[selected].filter(item=>item!==site)});showToast(`${site}을(를) 삭제했습니다.`);};return <><CardHeader title="조직·사업장" subtitle="여기서 추가한 사업장은 활동자료 입력과 Excel 검증에 바로 반영됩니다."/><div className="organization-grid"><div className="org-list">{companies.map(c=><button key={c} className={selected===c?"active":""} onClick={()=>{setSelected(c);setAdding(false)}}><span className="company-initial">{c.slice(-1)}</span><div><strong>{c}</strong><small>{organizations[c].length}개 사업장</small></div><Icon name="chevron" size={16}/></button>)}</div><div className="site-panel"><div><strong>{selected} 사업장</strong><button className="outline-small" onClick={()=>setAdding(!adding)}><Icon name={adding?"close":"plus"} size={14}/>{adding?"취소":"사업장 추가"}</button></div>{adding&&<div className="inline-add"><input placeholder="새 사업장명" value={newSite} onChange={e=>setNewSite(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSite()}/><button className="primary-button" onClick={addSite}>추가</button></div>}{organizations[selected].map(site=><div className="site-row" key={site}><span><Icon name="building" size={17}/></span><div><strong>{site}</strong><small>사용 중 · 국내 사업장</small></div><button className="icon-row-button danger" onClick={()=>removeSite(site)} aria-label={`${site} 삭제`}><Icon name="trash" size={14}/></button></div>)}</div></div><SettingsFooter onSave={()=>showToast("조직·사업장 설정을 저장했습니다.")}/></>}
 function PermissionSettings({showToast}:{showToast:(m:string)=>void}){const [roles,setRoles]=useState([{name:"관리자",desc:"모든 법인 조회·검토·기준정보 관리",members:3,write:true,approve:true},{name:"법인 담당자",desc:"소속 법인 자료 입력·수정·제출",members:12,write:true,approve:false},{name:"조회자",desc:"확정 자료와 대시보드 조회",members:6,write:false,approve:false}]);return <><CardHeader title="권한 관리" subtitle="역할별 화면 접근과 작업 권한을 설계합니다."/><div className="permission-table">{roles.map((r,index)=><div key={r.name}><div><strong>{r.name}</strong><p>{r.desc}</p></div><span>{r.members}명</span><label><input type="checkbox" checked={r.write} onChange={e=>setRoles(roles.map((x,i)=>i===index?{...x,write:e.target.checked}:x))}/>입력</label><label><input type="checkbox" checked={r.approve} onChange={e=>setRoles(roles.map((x,i)=>i===index?{...x,approve:e.target.checked}:x))}/>확정</label></div>)}</div><div className="server-note"><Icon name="lock" size={17}/>현재는 권한 설계 화면입니다. 실제 사용자별 접근 제한은 사내 로그인·권한 서버 연결 후 적용됩니다.</div><SettingsFooter onSave={()=>showToast("권한 설계안을 저장했습니다.")}/></>}
-function DataSettings({onExport,onRestore,showToast}:{onExport:()=>void;onRestore:(payload:Record<string,unknown>)=>void;showToast:(m:string)=>void}){const inputRef=useRef<HTMLInputElement>(null);const restore=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];if(!file)return;try{const parsed=JSON.parse(await file.text()) as Record<string,unknown>;if(window.confirm("현재 브라우저의 운영 데이터를 백업 파일 내용으로 교체하시겠습니까?"))onRestore(parsed);}catch{showToast("백업 파일을 읽을 수 없습니다.");}finally{event.target.value="";}};return <><CardHeader title="운영 데이터 백업" subtitle="기간·활동자료·배출계수·증빙·지표·설정을 한 파일로 보관합니다."/><div className="backup-grid"><article><span className="backup-icon"><Icon name="download"/></span><div><strong>전체 데이터 내보내기</strong><p>정기 백업과 다른 PC로의 이관에 사용할 JSON 파일을 생성합니다.</p><button className="primary-button" onClick={onExport}><Icon name="download" size={16}/>백업 파일 저장</button></div></article><article><span className="backup-icon restore"><Icon name="upload"/></span><div><strong>백업 데이터 복원</strong><p>SEMS에서 내보낸 백업 파일로 현재 운영 데이터를 교체합니다.</p><button className="secondary-button" onClick={()=>inputRef.current?.click()}><Icon name="upload" size={16}/>백업 파일 선택</button><input ref={inputRef} type="file" accept=".json" hidden onChange={restore}/></div></article></div><div className="server-note"><Icon name="alert" size={17}/>현재 버전은 브라우저 단위로 저장됩니다. 다중 사용자 공동 운영은 사내 데이터베이스 연결 후 같은 화면 구조를 그대로 사용합니다.</div></>}
+function DataSettings({onExport,onRestore,showToast}:{onExport:()=>void;onRestore:(payload:Record<string,unknown>)=>void;showToast:(m:string)=>void}){const inputRef=useRef<HTMLInputElement>(null);const restore=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];if(!file)return;try{const parsed=JSON.parse(await file.text()) as Record<string,unknown>;if(window.confirm("현재 브라우저의 운영 데이터를 백업 파일 내용으로 교체하시겠습니까?"))onRestore(parsed);}catch{showToast("백업 파일을 읽을 수 없습니다.");}finally{event.target.value="";}};return <><CardHeader title="운영 데이터 백업" subtitle="기간·활동자료·목표·이행계획·배출계수·증빙·지표·설정을 한 파일로 보관합니다."/><div className="backup-grid"><article><span className="backup-icon"><Icon name="download"/></span><div><strong>전체 데이터 내보내기</strong><p>정기 백업과 다른 PC로의 이관에 사용할 JSON 파일을 생성합니다.</p><button className="primary-button" onClick={onExport}><Icon name="download" size={16}/>백업 파일 저장</button></div></article><article><span className="backup-icon restore"><Icon name="upload"/></span><div><strong>백업 데이터 복원</strong><p>SEMS에서 내보낸 백업 파일로 현재 운영 데이터를 교체합니다.</p><button className="secondary-button" onClick={()=>inputRef.current?.click()}><Icon name="upload" size={16}/>백업 파일 선택</button><input ref={inputRef} type="file" accept=".json" hidden onChange={restore}/></div></article></div><div className="server-note"><Icon name="alert" size={17}/>현재 버전은 브라우저 단위로 저장됩니다. 다중 사용자 공동 운영은 사내 데이터베이스 연결 후 같은 화면 구조를 그대로 사용합니다.</div></>}
 function Toggle({label,description,checked,onChange}:{label:string;description?:string;checked:boolean;onChange:(v:boolean)=>void}){return <label className="toggle-row"><div><strong>{label}</strong>{description&&<p>{description}</p>}</div><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><span/></label>}
 function SettingsFooter({onSave}:{onSave:()=>void}){return <div className="settings-footer"><span>변경 내용은 현재 브라우저에 저장됩니다.</span><button className="primary-button" onClick={onSave}>변경사항 저장</button></div>}
 function FactorForm({factor,onClose,onSave,onDelete}:{factor:EmissionFactor|null;onClose:()=>void;onSave:(f:EmissionFactor)=>void;onDelete?:()=>void}){const [form,setForm]=useState<EmissionFactor>(factor??{id:"NEW-FACTOR",scope:"Scope 1",category:"",source:"",value:0,activityUnit:"L",factorUnit:"kgCO₂e/L",year:"2026",authority:"",active:true});const patch=(p:Partial<EmissionFactor>)=>setForm(c=>({...c,...p}));return <Overlay title={factor?"배출계수 수정":"배출계수 추가"} eyebrow="EMISSION FACTOR" description="여기서 저장한 계수만 활동자료 입력 화면에 자동 표시됩니다." onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSave(form)}}><div className="form-section"><div className="form-grid"><label>Scope<select value={form.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>활동자료 구분<input value={form.category} onChange={e=>patch({category:e.target.value})} required/></label><label>배출원<input value={form.source} onChange={e=>patch({source:e.target.value})} required/></label><label>활동자료 단위<input value={form.activityUnit} onChange={e=>patch({activityUnit:e.target.value,factorUnit:`kgCO₂e/${e.target.value}`})} required/></label><label>배출계수<input type="number" min="0" step="any" value={form.value||""} onChange={e=>patch({value:Number(e.target.value)})} required/></label><label>계수 단위<input value={form.factorUnit} onChange={e=>patch({factorUnit:e.target.value})} required/></label><label>적용 연도<input value={form.year} onChange={e=>patch({year:e.target.value})} required/></label><label>출처<input value={form.authority} onChange={e=>patch({authority:e.target.value})} required/></label><Toggle label="활동자료 입력 시 사용" checked={form.active} onChange={v=>patch({active:v})}/></div></div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>계수 저장</button></div></div></form></Overlay>}
