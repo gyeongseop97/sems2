@@ -1298,8 +1298,19 @@ body { font-size: 16px; line-height: 1.58; }
 .report-canvas-toolbar button { min-height: 31px; padding: 0 9px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d7e0dc; border-radius: 6px; background: #fff; color: #4b5e56; font-size: 9px; font-weight: 750; cursor: pointer; }
 .report-canvas-toolbar button:hover { border-color: #7bb49f; color: #276f58; background: #f2f8f5; }
 .report-canvas-toolbar button > b { font: 800 14px Georgia,serif; }
+.report-grid-controls { margin-left: auto; padding-left: 9px; display: flex; align-items: center; gap: 6px; border-left: 1px solid #dfe6e3; }
+.report-grid-controls > label { min-height: 31px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d7e0dc; border-radius: 6px; background: white; color: #61716a; font-size: 9px; font-weight: 750; cursor: pointer; }
+.report-grid-controls > label.active { border-color: #72ad97; background: #edf7f3; color: #286f58; }
+.report-grid-controls input { position: absolute; opacity: 0; pointer-events: none; }
+.report-grid-controls label > i { width: 24px; height: 14px; position: relative; display: block; border-radius: 9px; background: #c9d2ce; transition: background .15s ease; }
+.report-grid-controls label > i::after { content: ""; width: 10px; height: 10px; position: absolute; left: 2px; top: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 2px rgba(28,49,40,.18); transition: transform .15s ease; }
+.report-grid-controls > label.active i { background: #3d977a; }
+.report-grid-controls > label.active i::after { transform: translateX(10px); }
+.report-grid-controls select { height: 31px; padding: 0 23px 0 7px; border: 1px solid #d7e0dc; border-radius: 6px; background: white; color: #52645c; font-size: 9px; font-weight: 700; }
+.report-grid-controls select:disabled { color: #a0aaa6; background: #f0f3f1; cursor: not-allowed; }
 .report-canvas-stage { padding: 22px; overflow: auto; background: #dfe4e2; }
-.report-slide-canvas { width: 900px; height: 650px; max-width: none; position: relative; overflow: hidden; border: 1px solid #cbd5d1; background-color: white; background-image: linear-gradient(to right,rgba(51,104,84,.055) 1px,transparent 1px),linear-gradient(to bottom,rgba(51,104,84,.055) 1px,transparent 1px); background-size: calc(100% / 24) calc(100% / 18); box-shadow: 0 8px 24px rgba(31,52,43,.15); user-select: none; touch-action: none; }
+.report-slide-canvas { width: 900px; height: 650px; max-width: none; position: relative; overflow: hidden; border: 1px solid #cbd5d1; background-color: white; box-shadow: 0 8px 24px rgba(31,52,43,.15); user-select: none; touch-action: none; }
+.report-slide-canvas.snap-grid-visible { background-image: linear-gradient(to right,rgba(51,104,84,.035) 1px,transparent 1px),linear-gradient(to bottom,rgba(51,104,84,.035) 1px,transparent 1px),linear-gradient(to right,rgba(51,104,84,.085) 1px,transparent 1px),linear-gradient(to bottom,rgba(51,104,84,.085) 1px,transparent 1px); background-size: var(--report-grid-size) var(--report-grid-size),var(--report-grid-size) var(--report-grid-size),var(--report-grid-major-size) var(--report-grid-major-size),var(--report-grid-major-size) var(--report-grid-major-size); }
 .report-slide-canvas > header { height: 8%; padding: 0 4%; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid var(--report-primary); color: var(--report-primary); font-size: 10px; font-weight: 800; letter-spacing: .08em; }
 .report-slide-canvas > header em { max-width: 70%; overflow: hidden; color: #52635c; font-size: 11px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .report-slide-canvas > footer { position: absolute; right: 3%; bottom: 1.5%; color: #87938e; font-size: 8px; }
