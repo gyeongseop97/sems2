@@ -174,6 +174,8 @@ type MetricSubmission = {
 type ReportStatus = "초안" | "검토중" | "발행완료";
 type ReportSection = "보고서 개요" | "환경" | "사회" | "지배구조" | "부록";
 type ReportDataSource = "온실가스 배출량" | "감축목표" | "ESG 지표";
+type ReportOrientation = "landscape" | "portrait";
+type ReportHeadingStyle = "major" | "middle" | "minor" | "table";
 type ReportBlockType = "title" | "text" | "image" | "data" | "chart" | "file" | "line" | "callout" | "divider";
 type ReportBlock = {
   id: string;
@@ -195,6 +197,7 @@ type ReportBlock = {
   backgroundColor?: string;
   border?: boolean;
   chartType?: "bar" | "line";
+  headingStyle?: ReportHeadingStyle;
 };
 type ReportPage = {
   id: string;
@@ -212,6 +215,7 @@ type SustainabilityReport = {
   primaryColor: string;
   accentColor: string;
   fontFamily: "Noto Sans KR" | "Pretendard" | "serif";
+  orientation?: ReportOrientation;
   frameworks: string[];
   pages: ReportPage[];
   updatedAt: string;
@@ -1180,7 +1184,7 @@ function createReportPages():ReportPage[]{
 }
 
 function createReportDraft(title:string,year:number,organization:string,reportingPeriod:string,frameworks:string[]):SustainabilityReport{
-  return {id:`SR-${Date.now()}`,title,year,organization,reportingPeriod,status:"초안",primaryColor:"#1f6f5c",accentColor:"#dfeee8",fontFamily:"Noto Sans KR",frameworks,pages:createReportPages(),updatedAt:nowLabel()};
+  return {id:`SR-${Date.now()}`,title,year,organization,reportingPeriod,status:"초안",primaryColor:"#1f6f5c",accentColor:"#dfeee8",fontFamily:"Noto Sans KR",orientation:"landscape",frameworks,pages:createReportPages(),updatedAt:nowLabel()};
 }
 
 function ReportBuilder({reports,records,targets,indicators,organizationNames,canManage,onChange,addAudit,showToast}:{reports:SustainabilityReport[];records:ActivityRecord[];targets:ReductionTarget[];indicators:Indicator[];organizationNames:string[];canManage:boolean;onChange:(items:SustainabilityReport[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(message:string)=>void}){
@@ -1219,6 +1223,21 @@ function reportBlockLabel(type:ReportBlockType){
   return ({title:"제목",text:"본문",image:"이미지",data:"데이터 표",chart:"그래프",file:"파일",line:"선",callout:"강조 상자",divider:"구분선"} as Record<ReportBlockType,string>)[type];
 }
 
+function reportHeadingLabel(style:ReportHeadingStyle){
+  return ({major:"대제목",middle:"중제목",minor:"소제목",table:"표제목"} as Record<ReportHeadingStyle,string>)[style];
+}
+
+function reportHeadingPreset(style:ReportHeadingStyle,report:SustainabilityReport):Partial<ReportBlock>{
+  if(style==="major")return {headingStyle:style,title:"대제목",fontSize:34,w:86,h:15,color:report.primaryColor,backgroundColor:"transparent",border:false};
+  if(style==="middle")return {headingStyle:style,title:"중제목",fontSize:24,w:72,h:12,color:"#263832",backgroundColor:"transparent",border:false};
+  if(style==="minor")return {headingStyle:style,title:"소제목",fontSize:18,w:58,h:9,color:"#34473f",backgroundColor:"transparent",border:false};
+  return {headingStyle:style,title:"표 제목",fontSize:13,w:58,h:8,color:"#33473f",backgroundColor:report.accentColor,border:false};
+}
+
+function cloneReportPage(page:ReportPage):ReportPage{
+  return { ...page, blocks: page.blocks.map(block=>({...block})) };
+}
+
 async function prepareReportImage(file:File){
   if(file.size>8*1024*1024)throw new Error("이미지는 8MB 이하만 선택할 수 있습니다.");
   const source=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error("이미지를 읽을 수 없습니다."));reader.readAsDataURL(file);});
@@ -1233,55 +1252,128 @@ function ReportCanvasEditor({reports,report,page,canManage,records,targets,indic
   const [selectedBlockId,setSelectedBlockId]=useState("");
   const [snapEnabled,setSnapEnabled]=useState(true);
   const [gridSize,setGridSize]=useState(8);
+  const [fullscreen,setFullscreen]=useState(false);
+  const [historyStatus,setHistoryStatus]=useState({pageId:page?.id??"",past:0,future:0});
   const canvasRef=useRef<HTMLDivElement>(null);
   const imageInputRef=useRef<HTMLInputElement>(null);
   const fileInputRef=useRef<HTMLInputElement>(null);
   const pendingAssetId=useRef("");
+  const pageRef=useRef<ReportPage|undefined>(page);
+  const histories=useRef(new Map<string,{past:ReportPage[];future:ReportPage[]}>());
+  const lastHistory=useRef({pageId:"",key:""});
+  const orientation=report.orientation??"landscape";
   const selectedBlock=page?.blocks.find(block=>block.id===selectedBlockId);
-  const patchBlock=(id:string,patch:Partial<ReportBlock>)=>{if(!page||!canManage)return;onPagePatch({blocks:page.blocks.map(block=>block.id===id?{...block,...patch}:block)});};
-  const addBlock=(type:ReportBlockType)=>{
-    if(!page||!canManage)return;
-    const index=page.blocks.length;
+  const canUndo=historyStatus.pageId===page?.id&&historyStatus.past>0;
+  const canRedo=historyStatus.pageId===page?.id&&historyStatus.future>0;
+
+  useEffect(()=>{pageRef.current=page;},[page]);
+  useEffect(()=>{
+    document.body.classList.toggle("report-editor-open",fullscreen);
+    return()=>document.body.classList.remove("report-editor-open");
+  },[fullscreen]);
+
+  const rememberCurrent=(key="")=>{
+    const current=pageRef.current;if(!current)return;
+    const currentHistory=histories.current.get(current.id)??{past:[],future:[]};
+    const merge=Boolean(key)&&lastHistory.current.pageId===current.id&&lastHistory.current.key===key;
+    if(!merge)currentHistory.past.push(cloneReportPage(current));
+    if(currentHistory.past.length>80)currentHistory.past.shift();
+    currentHistory.future=[];
+    histories.current.set(current.id,currentHistory);
+    lastHistory.current={pageId:current.id,key};
+    setHistoryStatus({pageId:current.id,past:currentHistory.past.length,future:0});
+  };
+  const applyPagePatch=(patch:Partial<ReportPage>,record=true,historyKey="")=>{
+    const current=pageRef.current;if(!current||!canManage)return;
+    if(record)rememberCurrent(historyKey);
+    pageRef.current={...current,...patch};
+    onPagePatch(patch);
+  };
+  const undo=()=>{
+    const current=pageRef.current;if(!current||!canManage)return;
+    const currentHistory=histories.current.get(current.id);const previous=currentHistory?.past.pop();if(!currentHistory||!previous)return;
+    currentHistory.future.push(cloneReportPage(current));
+    histories.current.set(current.id,currentHistory);
+    pageRef.current=cloneReportPage(previous);
+    lastHistory.current={pageId:"",key:""};
+    onPagePatch(previous);
+    setHistoryStatus({pageId:current.id,past:currentHistory.past.length,future:currentHistory.future.length});
+  };
+  const redo=()=>{
+    const current=pageRef.current;if(!current||!canManage)return;
+    const currentHistory=histories.current.get(current.id);const next=currentHistory?.future.pop();if(!currentHistory||!next)return;
+    currentHistory.past.push(cloneReportPage(current));
+    histories.current.set(current.id,currentHistory);
+    pageRef.current=cloneReportPage(next);
+    lastHistory.current={pageId:"",key:""};
+    onPagePatch(next);
+    setHistoryStatus({pageId:current.id,past:currentHistory.past.length,future:currentHistory.future.length});
+  };
+  useEffect(()=>{
+    const handleKey=(event:KeyboardEvent)=>{
+      if(event.key==="Escape"&&fullscreen){event.preventDefault();setFullscreen(false);return;}
+      if(!canManage||!(event.ctrlKey||event.metaKey))return;
+      const key=event.key.toLowerCase();
+      if(key==="z"&&!event.shiftKey){event.preventDefault();undo();}
+      else if(key==="y"||(key==="z"&&event.shiftKey)){event.preventDefault();redo();}
+    };
+    window.addEventListener("keydown",handleKey);
+    return()=>window.removeEventListener("keydown",handleKey);
+  });
+
+  const patchBlock=(id:string,patch:Partial<ReportBlock>,record=true,historyKey="")=>{
+    const current=pageRef.current;if(!current||!canManage)return;
+    applyPagePatch({blocks:current.blocks.map(block=>block.id===id?{...block,...patch}:block)},record,historyKey||`block:${id}:${Object.keys(patch).sort().join(",")}`);
+  };
+  const addBlock=(type:ReportBlockType,headingStyle:ReportHeadingStyle="major")=>{
+    const current=pageRef.current;if(!current||!canManage)return;
+    const index=current.blocks.length;
     const title=type==="title"?"새 제목":type==="data"?"SEMS 데이터 표":type==="chart"?"SEMS 데이터 그래프":type==="image"?"이미지":type==="file"?"첨부 파일":type==="line"||type==="divider"?"":type==="callout"?"핵심 메시지":"본문 제목";
     const body=type==="text"?"내용을 입력해 주세요.":type==="callout"?"강조할 메시지를 입력해 주세요.":type==="data"||type==="chart"?"확정된 SEMS 데이터를 자동으로 연결합니다.":"";
-    const block:ReportBlock={id:`RB-${crypto.randomUUID()}`,type,title,body,dataSource:type==="data"||type==="chart"?"온실가스 배출량":undefined,x:7+(index%3)*3,y:12+(index%4)*7,w:type==="line"||type==="divider"?86:type==="title"?70:44,h:type==="line"||type==="divider"?5:type==="title"?13:type==="data"?30:24,fontSize:type==="title"?30:15,textAlign:"left",color:"#263832",backgroundColor:type==="callout"?report.accentColor:"#ffffff",border:type==="callout",imageFit:"cover",chartType:"bar"};
-    onPagePatch({blocks:[...page.blocks,block]});setSelectedBlockId(block.id);addAudit("보고서 콘텐츠 추가",page.title,`${reportBlockLabel(type)} 블록을 추가했습니다.`);
+    const base:ReportBlock={id:`RB-${crypto.randomUUID()}`,type,title,body,dataSource:type==="data"||type==="chart"?"온실가스 배출량":undefined,x:7+(index%3)*3,y:12+(index%4)*7,w:type==="line"||type==="divider"?86:type==="title"?70:44,h:type==="line"||type==="divider"?5:type==="title"?13:type==="data"?30:24,fontSize:type==="title"?30:15,textAlign:"left",color:"#263832",backgroundColor:type==="callout"?report.accentColor:"#ffffff",border:type==="callout",imageFit:"cover",chartType:"bar"};
+    const block=type==="title"?{...base,...reportHeadingPreset(headingStyle,report)}:base;
+    applyPagePatch({blocks:[...current.blocks,block]});setSelectedBlockId(block.id);addAudit("보고서 콘텐츠 추가",current.title,`${type==="title"?reportHeadingLabel(headingStyle):reportBlockLabel(type)} 블록을 추가했습니다.`);
     if(type==="image"){pendingAssetId.current=block.id;window.setTimeout(()=>imageInputRef.current?.click(),0);}
     if(type==="file"){pendingAssetId.current=block.id;window.setTimeout(()=>fileInputRef.current?.click(),0);}
   };
-  const removeBlock=(block:ReportBlock)=>{if(!page||!window.confirm("선택한 콘텐츠를 삭제하시겠습니까?"))return;onPagePatch({blocks:page.blocks.filter(item=>item.id!==block.id)});setSelectedBlockId("");addAudit("보고서 콘텐츠 삭제",page.title,`${block.title||reportBlockLabel(block.type)} 블록을 삭제했습니다.`);};
-  const moveLayer=(block:ReportBlock,direction:-1|1)=>{if(!page)return;const blocks=[...page.blocks];const index=blocks.findIndex(item=>item.id===block.id);const target=direction===1?blocks.length-1:0;if(index===target)return;blocks.splice(index,1);blocks.splice(target,0,block);onPagePatch({blocks});};
+  const removeBlock=(block:ReportBlock)=>{const current=pageRef.current;if(!current||!window.confirm("선택한 콘텐츠를 삭제하시겠습니까?"))return;applyPagePatch({blocks:current.blocks.filter(item=>item.id!==block.id)});setSelectedBlockId("");addAudit("보고서 콘텐츠 삭제",current.title,`${block.title||reportBlockLabel(block.type)} 블록을 삭제했습니다.`);};
+  const moveLayer=(block:ReportBlock,direction:-1|1)=>{const current=pageRef.current;if(!current)return;const blocks=[...current.blocks];const index=blocks.findIndex(item=>item.id===block.id);const target=direction===1?blocks.length-1:0;if(index===target)return;blocks.splice(index,1);blocks.splice(target,0,block);applyPagePatch({blocks});};
   const beginTransform=(event:ReactPointerEvent<HTMLElement>,block:ReportBlock,mode:"move"|"resize")=>{
     if(!canManage||!canvasRef.current)return;
     event.preventDefault();event.stopPropagation();setSelectedBlockId(block.id);
-    const rect=canvasRef.current.getBoundingClientRect();const startX=event.clientX;const startY=event.clientY;const layout=reportBlockLayout(block,page?.blocks.indexOf(block)??0);
+    const current=pageRef.current;const rect=canvasRef.current.getBoundingClientRect();const startX=event.clientX;const startY=event.clientY;const layout=reportBlockLayout(block,current?.blocks.indexOf(block)??0);
     const snap=(value:number,axisSize:number)=>snapEnabled?Math.round((value/100*axisSize)/gridSize)*gridSize/axisSize*100:value;
     const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
+    let captured=false;
     const onMove=(moveEvent:PointerEvent)=>{
+      if(!captured){rememberCurrent();captured=true;}
       const dx=(moveEvent.clientX-startX)/rect.width*100;const dy=(moveEvent.clientY-startY)/rect.height*100;
       if(mode==="move"){
         const x=clamp(snap(layout.x+dx,rect.width),0,100-layout.w);
         const y=clamp(snap(layout.y+dy,rect.height),0,100-layout.h);
-        patchBlock(block.id,{x,y});
+        patchBlock(block.id,{x,y},false);
       }else{
         const w=clamp(snap(layout.w+dx,rect.width),8,100-layout.x);
         const h=clamp(snap(layout.h+dy,rect.height),4,100-layout.y);
-        patchBlock(block.id,{w,h});
+        patchBlock(block.id,{w,h},false);
       }
     };
-    const onUp=()=>{window.removeEventListener("pointermove",onMove);window.removeEventListener("pointerup",onUp);};
+    const onUp=()=>{lastHistory.current={pageId:"",key:""};window.removeEventListener("pointermove",onMove);window.removeEventListener("pointerup",onUp);};
     window.addEventListener("pointermove",onMove);window.addEventListener("pointerup",onUp,{once:true});
   };
   const uploadImage=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;try{const imageData=await prepareReportImage(file);patchBlock(pendingAssetId.current,{imageData,imageName:file.name,title:file.name});showToast("이미지를 캔버스에 넣었습니다.");}catch(error){showToast(error instanceof Error?error.message:"이미지를 처리할 수 없습니다.");}};
   const attachFile=(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;if(file.size>20*1024*1024){showToast("첨부파일은 20MB 이하만 선택할 수 있습니다.");return;}patchBlock(pendingAssetId.current,{fileName:file.name,title:file.name,body:`${formatNumber(file.size/1024,0)} KB`});showToast("파일 표시 블록을 추가했습니다.");};
-  return <section className="report-workbench canvas-workbench">
-    <aside className="card report-outline"><CardHeader title="보고서 목차" subtitle="페이지를 선택해 편집합니다." action={canManage?<button className="outline-small" onClick={onPageAdd}><Icon name="plus" size={14}/>페이지</button>:undefined}/><div className="report-select-wrap"><select value={report.id} onChange={event=>onReportSelect(event.target.value)}>{reports.map(item=><option value={item.id} key={item.id}>{item.year} · {item.title}</option>)}</select></div><div className="report-page-list">{report.pages.map((item,index)=><button key={item.id} className={item.id===page?.id?"active":""} onClick={()=>onPageSelect(item.id)}><span>{String(index+1).padStart(2,"0")}</span><div><strong>{item.title}</strong><small>{item.section} · {item.blocks.length}개 요소</small></div><Icon name="chevron" size={14}/></button>)}</div></aside>
-    <article className="card report-canvas-editor">{page?<><div className="report-editor-head"><div><span>{page.section}</span><h2>{page.title}</h2><p>요소를 끌어 이동하고 우측 아래 핸들로 크기를 조절합니다. 격자 맞춤을 켜면 위치와 크기가 간격에 맞춰 고정됩니다.</p></div>{canManage&&<div className="row-actions"><button className="outline-small" onClick={()=>onPageMove(-1)} aria-label="페이지 위로 이동">↑</button><button className="outline-small" onClick={()=>onPageMove(1)} aria-label="페이지 아래로 이동">↓</button><button className="danger-button compact" onClick={onPageRemove} disabled={report.pages.length===1}><Icon name="trash" size={14}/>페이지 삭제</button></div>}</div>
-      {canManage&&<div className="report-page-settings"><label>페이지 제목<input value={page.title} onChange={event=>onPagePatch({title:event.target.value})}/></label><label>구분<select value={page.section} onChange={event=>onPagePatch({section:event.target.value as ReportSection})}><option>보고서 개요</option><option>환경</option><option>사회</option><option>지배구조</option><option>부록</option></select></label></div>}
-      <div className="report-canvas-toolbar"><span>콘텐츠</span><button onClick={()=>addBlock("title")}><b>T</b> 제목</button><button onClick={()=>addBlock("text")}><Icon name="edit" size={14}/>본문</button><button onClick={()=>addBlock("image")}>▧ 이미지</button><button onClick={()=>addBlock("data")}><Icon name="database" size={14}/>데이터 표</button><button onClick={()=>addBlock("chart")}>▥ 그래프</button><button onClick={()=>addBlock("file")}><Icon name="file" size={14}/>파일</button><button onClick={()=>addBlock("line")}>― 선</button><div className="report-grid-controls"><label className={snapEnabled?"active":""} title="요소 이동과 크기 조절을 격자 간격에 맞춥니다."><input type="checkbox" checked={snapEnabled} onChange={event=>setSnapEnabled(event.target.checked)}/><i aria-hidden="true"/><span>격자 맞춤</span></label><select value={gridSize} onChange={event=>setGridSize(Number(event.target.value))} disabled={!snapEnabled} aria-label="격자 간격"><option value={8}>8 px</option><option value={12}>12 px</option><option value={16}>16 px</option><option value={24}>24 px</option></select></div><input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={uploadImage}/><input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx" hidden onChange={attachFile}/></div>
-      <div className="report-canvas-stage"><div ref={canvasRef} className={`report-slide-canvas ${snapEnabled?"snap-grid-visible":""}`} style={{fontFamily:report.fontFamily,"--report-primary":report.primaryColor,"--report-accent":report.accentColor,"--report-grid-size":`${gridSize}px`,"--report-grid-major-size":`${gridSize*4}px`} as CSSProperties} onPointerDown={()=>setSelectedBlockId("")}><header><span>{page.section.toUpperCase()}</span><em>{page.title}</em></header>{page.blocks.map((block,index)=>{const layout=reportBlockLayout(block,index);return <div key={block.id} className={`report-canvas-block ${block.type} ${selectedBlockId===block.id?"selected":""}`} style={{left:`${layout.x}%`,top:`${layout.y}%`,width:`${layout.w}%`,height:`${layout.h}%`,zIndex:index+1,color:block.color??"#263832",backgroundColor:block.backgroundColor??"transparent",textAlign:block.textAlign??"left",border:block.border?"1px solid #b9cfc6":"1px solid transparent"} as CSSProperties} onPointerDown={event=>beginTransform(event,block,"move")}><ReportCanvasBlockContent block={block} report={report} records={records} targets={targets} indicators={indicators}/>{canManage&&selectedBlockId===block.id&&<span className="report-resize-handle" onPointerDown={event=>beginTransform(event,block,"resize")}/>}</div>})}{!page.blocks.length&&<div className="report-canvas-empty"><Icon name="edit"/><strong>빈 페이지</strong><span>상단 도구에서 콘텐츠를 추가하세요.</span></div>}<footer>{report.organization} · {report.year}</footer></div></div>
+  const selectPage=(id:string)=>{const nextHistory=histories.current.get(id);setSelectedBlockId("");setHistoryStatus({pageId:id,past:nextHistory?.past.length??0,future:nextHistory?.future.length??0});onPageSelect(id);};
+  const openFullscreen=(id=page?.id)=>{if(id)selectPage(id);setFullscreen(true);};
+  return <section className={`report-workbench canvas-workbench ${fullscreen?"report-editor-fullscreen":""}`}>
+    {fullscreen&&<header className="report-fullscreen-bar"><div><span>전체 화면 편집</span><strong>{page?.title}</strong><em>{orientation==="portrait"?"세로형":"가로형"}</em></div><label>페이지<select value={page?.id??""} onChange={event=>selectPage(event.target.value)}>{report.pages.map((item,index)=><option key={item.id} value={item.id}>{index+1}. {item.title}</option>)}</select></label><div className="report-fullscreen-actions"><button onClick={undo} disabled={!canUndo} aria-keyshortcuts="Control+Z">↶ 실행 취소 <kbd>Ctrl+Z</kbd></button><button onClick={redo} disabled={!canRedo} aria-keyshortcuts="Control+Y">↷ 다시 실행 <kbd>Ctrl+Y</kbd></button><button className="fullscreen-close" onClick={()=>setFullscreen(false)}><Icon name="close" size={15}/>전체 화면 닫기</button></div></header>}
+    <aside className="card report-outline"><CardHeader title="보고서 목차" subtitle="페이지를 선택한 뒤 전체 화면에서 편집하세요." action={canManage?<button className="outline-small" onClick={onPageAdd}><Icon name="plus" size={14}/>페이지</button>:undefined}/><div className="report-select-wrap"><select value={report.id} onChange={event=>onReportSelect(event.target.value)}>{reports.map(item=><option value={item.id} key={item.id}>{item.year} · {item.title}</option>)}</select></div><div className="report-page-list">{report.pages.map((item,index)=><div key={item.id} className={`report-page-item ${item.id===page?.id?"active":""}`}><button className="report-page-select" onClick={()=>selectPage(item.id)}><span>{String(index+1).padStart(2,"0")}</span><div><strong>{item.title}</strong><small>{item.section} · {item.blocks.length}개 요소</small></div><Icon name="chevron" size={14}/></button>{canManage&&<button className="report-page-edit" onClick={()=>openFullscreen(item.id)}><Icon name="edit" size={13}/>수정하기</button>}</div>)}</div></aside>
+    <article className="card report-canvas-editor">{page?<><div className="report-editor-head"><div><span>{page.section}</span><h2>{page.title}</h2><p>요소를 끌어 이동하고 우측 아래 핸들로 크기를 조절합니다. 격자 맞춤을 켜면 위치와 크기가 간격에 맞춰 고정됩니다.</p></div>{canManage&&<div className="row-actions"><button className="secondary-button compact fullscreen-open" onClick={()=>openFullscreen()}><Icon name="edit" size={14}/>전체 화면 수정</button><button className="outline-small" onClick={()=>onPageMove(-1)} aria-label="페이지 위로 이동">↑</button><button className="outline-small" onClick={()=>onPageMove(1)} aria-label="페이지 아래로 이동">↓</button><button className="danger-button compact" onClick={onPageRemove} disabled={report.pages.length===1}><Icon name="trash" size={14}/>페이지 삭제</button></div>}</div>
+      {canManage&&<div className="report-page-settings"><label>페이지 제목<input value={page.title} onChange={event=>applyPagePatch({title:event.target.value},true,"page:title")}/></label><label>구분<select value={page.section} onChange={event=>applyPagePatch({section:event.target.value as ReportSection},true,"page:section")}><option>보고서 개요</option><option>환경</option><option>사회</option><option>지배구조</option><option>부록</option></select></label></div>}
+      <div className="report-canvas-toolbar"><span>제목 서식</span><div className="report-heading-controls">{(["major","middle","minor","table"] as ReportHeadingStyle[]).map(style=><button key={style} onClick={()=>addBlock("title",style)}>{reportHeadingLabel(style)}</button>)}</div><span className="toolbar-separator">콘텐츠</span><button onClick={()=>addBlock("text")}><Icon name="edit" size={14}/>본문</button><button onClick={()=>addBlock("image")}>▧ 이미지</button><button onClick={()=>addBlock("data")}><Icon name="database" size={14}/>데이터 표</button><button onClick={()=>addBlock("chart")}>▥ 그래프</button><button onClick={()=>addBlock("file")}><Icon name="file" size={14}/>파일</button><button onClick={()=>addBlock("line")}>― 선</button><div className="report-history-controls"><button onClick={undo} disabled={!canUndo} title="실행 취소 (Ctrl+Z)">↶</button><button onClick={redo} disabled={!canRedo} title="다시 실행 (Ctrl+Y)">↷</button></div><div className="report-grid-controls"><label className={snapEnabled?"active":""} title="요소 이동과 크기 조절을 격자 간격에 맞춥니다."><input type="checkbox" checked={snapEnabled} onChange={event=>setSnapEnabled(event.target.checked)}/><i aria-hidden="true"/><span>격자 맞춤</span></label><select value={gridSize} onChange={event=>setGridSize(Number(event.target.value))} disabled={!snapEnabled} aria-label="격자 간격"><option value={8}>8 px</option><option value={12}>12 px</option><option value={16}>16 px</option><option value={24}>24 px</option></select></div><input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={uploadImage}/><input ref={fileInputRef} type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,.ppt,.pptx" hidden onChange={attachFile}/></div>
+      <div className="report-canvas-stage"><div ref={canvasRef} className={`report-slide-canvas orientation-${orientation} ${snapEnabled?"snap-grid-visible":""}`} style={{fontFamily:report.fontFamily,"--report-primary":report.primaryColor,"--report-accent":report.accentColor,"--report-grid-size":`${gridSize}px`,"--report-grid-major-size":`${gridSize*4}px`} as CSSProperties} onPointerDown={()=>setSelectedBlockId("")}><header><span>{page.section.toUpperCase()}</span><em>{page.title}</em></header>{page.blocks.map((block,index)=>{const layout=reportBlockLayout(block,index);return <div key={block.id} className={`report-canvas-block ${block.type} ${selectedBlockId===block.id?"selected":""}`} style={{left:`${layout.x}%`,top:`${layout.y}%`,width:`${layout.w}%`,height:`${layout.h}%`,zIndex:index+1,color:block.color??"#263832",backgroundColor:block.backgroundColor??"transparent",textAlign:block.textAlign??"left",border:block.border?"1px solid #b9cfc6":"1px solid transparent"} as CSSProperties} onPointerDown={event=>beginTransform(event,block,"move")}><ReportCanvasBlockContent block={block} report={report} records={records} targets={targets} indicators={indicators}/>{canManage&&selectedBlockId===block.id&&<span className="report-resize-handle" onPointerDown={event=>beginTransform(event,block,"resize")}/>}</div>})}{!page.blocks.length&&<div className="report-canvas-empty"><Icon name="edit"/><strong>빈 페이지</strong><span>상단 도구에서 콘텐츠를 추가하세요.</span></div>}<footer>{report.organization} · {report.year}</footer></div></div>
     </>:<div className="empty-state"><strong>목차를 선택해 주세요.</strong></div>}</article>
-    <aside className="card report-inspector"><CardHeader title="속성" subtitle={selectedBlock?`${reportBlockLabel(selectedBlock.type)} 요소 편집`:"요소를 선택해 주세요."}/>{page&&canManage?<div className="report-inspector-body">{selectedBlock?<><div className="inspector-type"><span>{reportBlockLabel(selectedBlock.type)}</span><div><button onClick={()=>moveLayer(selectedBlock,-1)} title="맨 뒤로">↓</button><button onClick={()=>moveLayer(selectedBlock,1)} title="맨 앞으로">↑</button><button onClick={()=>removeBlock(selectedBlock)} title="삭제"><Icon name="trash" size={13}/></button></div></div>{!["line","divider","image"].includes(selectedBlock.type)&&<label>제목<input value={selectedBlock.title} onChange={event=>patchBlock(selectedBlock.id,{title:event.target.value})}/></label>}{["text","title","callout","data","chart"].includes(selectedBlock.type)&&<label>본문<textarea value={selectedBlock.body} onChange={event=>patchBlock(selectedBlock.id,{body:event.target.value})}/></label>}{["data","chart"].includes(selectedBlock.type)&&<label>연결 데이터<select value={selectedBlock.dataSource??"온실가스 배출량"} onChange={event=>patchBlock(selectedBlock.id,{dataSource:event.target.value as ReportDataSource})}><option>온실가스 배출량</option><option>감축목표</option><option>ESG 지표</option></select></label>}{selectedBlock.type==="chart"&&<label>그래프 형태<select value={selectedBlock.chartType??"bar"} onChange={event=>patchBlock(selectedBlock.id,{chartType:event.target.value as ReportBlock["chartType"]})}><option value="bar">막대</option><option value="line">추이</option></select></label>}{selectedBlock.type==="image"&&<><button className="secondary-button inspector-upload" onClick={()=>{pendingAssetId.current=selectedBlock.id;imageInputRef.current?.click()}}><Icon name="upload" size={14}/>이미지 교체</button><label>맞춤<select value={selectedBlock.imageFit??"cover"} onChange={event=>patchBlock(selectedBlock.id,{imageFit:event.target.value as ReportBlock["imageFit"]})}><option value="cover">영역 채우기</option><option value="contain">전체 보이기</option></select></label></>}<div className="inspector-grid"><label>X<input type="number" min="0" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).x)} onChange={event=>patchBlock(selectedBlock.id,{x:Number(event.target.value)})}/></label><label>Y<input type="number" min="0" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).y)} onChange={event=>patchBlock(selectedBlock.id,{y:Number(event.target.value)})}/></label><label>너비<input type="number" min="8" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).w)} onChange={event=>patchBlock(selectedBlock.id,{w:Number(event.target.value)})}/></label><label>높이<input type="number" min="4" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).h)} onChange={event=>patchBlock(selectedBlock.id,{h:Number(event.target.value)})}/></label></div>{!["image","file","line","divider","data","chart"].includes(selectedBlock.type)&&<><label>글자 크기<div className="input-unit"><input type="number" min="8" max="72" value={selectedBlock.fontSize??15} onChange={event=>patchBlock(selectedBlock.id,{fontSize:Number(event.target.value)})}/><span>px</span></div></label><div className="inspector-align">{(["left","center","right"] as const).map(align=><button key={align} className={(selectedBlock.textAlign??"left")===align?"active":""} onClick={()=>patchBlock(selectedBlock.id,{textAlign:align})}>{align==="left"?"왼쪽":align==="center"?"가운데":"오른쪽"}</button>)}</div></>}<div className="inspector-colors"><label>글자색<input type="color" value={selectedBlock.color??"#263832"} onChange={event=>patchBlock(selectedBlock.id,{color:event.target.value})}/></label><label>배경색<input type="color" value={selectedBlock.backgroundColor??"#ffffff"} onChange={event=>patchBlock(selectedBlock.id,{backgroundColor:event.target.value})}/></label></div><Toggle label="테두리 표시" checked={selectedBlock.border??false} onChange={value=>patchBlock(selectedBlock.id,{border:value})}/></>:<div className="inspector-empty"><span>↖</span><p>캔버스의 요소를 선택하면 글꼴·색상·크기·데이터 연결을 수정할 수 있습니다.</p></div>}</div>:<div className="inspector-empty"><p>조회 권한으로 보고서 원고를 확인하고 있습니다.</p></div>}</aside>
+    <aside className="card report-inspector"><CardHeader title="속성" subtitle={selectedBlock?`${selectedBlock.type==="title"?reportHeadingLabel(selectedBlock.headingStyle??"major"):reportBlockLabel(selectedBlock.type)} 요소 편집`:"요소를 선택해 주세요."}/>{page&&canManage?<div className="report-inspector-body">{selectedBlock?<><div className="inspector-type"><span>{selectedBlock.type==="title"?reportHeadingLabel(selectedBlock.headingStyle??"major"):reportBlockLabel(selectedBlock.type)}</span><div><button onClick={()=>moveLayer(selectedBlock,-1)} title="맨 뒤로">↓</button><button onClick={()=>moveLayer(selectedBlock,1)} title="맨 앞으로">↑</button><button onClick={()=>removeBlock(selectedBlock)} title="삭제"><Icon name="trash" size={13}/></button></div></div>{selectedBlock.type==="title"&&<label>제목 서식<select value={selectedBlock.headingStyle??"major"} onChange={event=>patchBlock(selectedBlock.id,reportHeadingPreset(event.target.value as ReportHeadingStyle,report))}>{(["major","middle","minor","table"] as ReportHeadingStyle[]).map(style=><option key={style} value={style}>{reportHeadingLabel(style)}</option>)}</select></label>}{!["line","divider","image"].includes(selectedBlock.type)&&<label>제목<input value={selectedBlock.title} onChange={event=>patchBlock(selectedBlock.id,{title:event.target.value})}/></label>}{["text","callout","data","chart"].includes(selectedBlock.type)&&<label>본문<textarea value={selectedBlock.body} onChange={event=>patchBlock(selectedBlock.id,{body:event.target.value})}/></label>}{["data","chart"].includes(selectedBlock.type)&&<label>연결 데이터<select value={selectedBlock.dataSource??"온실가스 배출량"} onChange={event=>patchBlock(selectedBlock.id,{dataSource:event.target.value as ReportDataSource})}><option>온실가스 배출량</option><option>감축목표</option><option>ESG 지표</option></select></label>}{selectedBlock.type==="chart"&&<label>그래프 형태<select value={selectedBlock.chartType??"bar"} onChange={event=>patchBlock(selectedBlock.id,{chartType:event.target.value as ReportBlock["chartType"]})}><option value="bar">막대</option><option value="line">추이</option></select></label>}{selectedBlock.type==="image"&&<><button className="secondary-button inspector-upload" onClick={()=>{pendingAssetId.current=selectedBlock.id;imageInputRef.current?.click()}}><Icon name="upload" size={14}/>이미지 교체</button><label>맞춤<select value={selectedBlock.imageFit??"cover"} onChange={event=>patchBlock(selectedBlock.id,{imageFit:event.target.value as ReportBlock["imageFit"]})}><option value="cover">영역 채우기</option><option value="contain">전체 보이기</option></select></label></>}<div className="inspector-grid"><label>X<input type="number" min="0" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).x)} onChange={event=>patchBlock(selectedBlock.id,{x:Number(event.target.value)})}/></label><label>Y<input type="number" min="0" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).y)} onChange={event=>patchBlock(selectedBlock.id,{y:Number(event.target.value)})}/></label><label>너비<input type="number" min="8" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).w)} onChange={event=>patchBlock(selectedBlock.id,{w:Number(event.target.value)})}/></label><label>높이<input type="number" min="4" max="100" value={Math.round(reportBlockLayout(selectedBlock,page.blocks.indexOf(selectedBlock)).h)} onChange={event=>patchBlock(selectedBlock.id,{h:Number(event.target.value)})}/></label></div>{!["image","file","line","divider","data","chart"].includes(selectedBlock.type)&&<><label>글자 크기<div className="input-unit"><input type="number" min="8" max="72" value={selectedBlock.fontSize??15} onChange={event=>patchBlock(selectedBlock.id,{fontSize:Number(event.target.value)})}/><span>px</span></div></label><div className="inspector-align">{(["left","center","right"] as const).map(align=><button key={align} className={(selectedBlock.textAlign??"left")===align?"active":""} onClick={()=>patchBlock(selectedBlock.id,{textAlign:align})}>{align==="left"?"왼쪽":align==="center"?"가운데":"오른쪽"}</button>)}</div></>}<div className="inspector-colors"><label>글자색<input type="color" value={selectedBlock.color??"#263832"} onChange={event=>patchBlock(selectedBlock.id,{color:event.target.value})}/></label><label>배경색<input type="color" value={selectedBlock.backgroundColor??"#ffffff"} onChange={event=>patchBlock(selectedBlock.id,{backgroundColor:event.target.value})}/></label></div><Toggle label="테두리 표시" checked={selectedBlock.border??false} onChange={value=>patchBlock(selectedBlock.id,{border:value})}/></>:<div className="inspector-empty"><span>↖</span><p>캔버스의 요소를 선택하면 글꼴·색상·크기·데이터 연결을 수정할 수 있습니다.</p></div>}</div>:<div className="inspector-empty"><p>조회 권한으로 보고서 원고를 확인하고 있습니다.</p></div>}</aside>
   </section>;
 }
 
@@ -1291,7 +1383,7 @@ function ReportCanvasBlockContent({block,report,records,targets,indicators}:{blo
   if(block.type==="file")return <div className="report-file-block"><Icon name="file" size={22}/><div><strong>{block.fileName||block.title||"첨부 파일"}</strong><small>{block.body||"파일 정보"}</small></div></div>;
   if(block.type==="data")return <div className="report-data-block"><h3>{block.title}</h3>{block.body&&<p>{block.body}</p>}<ReportDataTable source={block.dataSource??"온실가스 배출량"} report={report} records={records} targets={targets} indicators={indicators}/></div>;
   if(block.type==="chart")return <div className="report-data-block"><h3>{block.title}</h3><ReportDataChart source={block.dataSource??"온실가스 배출량"} report={report} records={records} targets={targets} indicators={indicators} chartType={block.chartType??"bar"}/></div>;
-  if(block.type==="title")return <div className="report-title-block" style={{fontSize:block.fontSize??30}}>{block.title||block.body}</div>;
+  if(block.type==="title")return <div className={`report-title-block heading-${block.headingStyle??"major"}`} style={{fontSize:block.fontSize??30}}>{block.title||block.body}</div>;
   return <div className={`report-text-block ${block.type}`}><h3 style={{fontSize:(block.fontSize??15)+4}}>{block.title}</h3><p style={{fontSize:block.fontSize??15}}>{block.body}</p></div>;
 }
 
@@ -1306,10 +1398,10 @@ function ReportDataChart({source,report,records,targets,indicators,chartType}:{s
 
 function ReportSettingsModal({item,organizationNames,onClose,onSave,onDelete}:{item:SustainabilityReport|null;organizationNames:string[];onClose:()=>void;onSave:(report:SustainabilityReport)=>void;onDelete?:()=>void}){
   const currentYear=new Date().getFullYear();
-  const [form,setForm]=useState<SustainabilityReport>(item??createReportDraft(`${currentYear} 세원그룹 지속가능경영보고서`,currentYear,"세원그룹",`${currentYear-1}.01.01 ~ ${currentYear-1}.12.31`,["GRI","ESRS","KSSB"]));
+  const [form,setForm]=useState<SustainabilityReport>(item?{...item,orientation:item.orientation??"landscape"}:createReportDraft(`${currentYear} 세원그룹 지속가능경영보고서`,currentYear,"세원그룹",`${currentYear-1}.01.01 ~ ${currentYear-1}.12.31`,["GRI","ESRS","KSSB"]));
   const patch=(value:Partial<SustainabilityReport>)=>setForm(current=>({...current,...value}));
   const toggleFramework=(framework:string)=>patch({frameworks:form.frameworks.includes(framework)?form.frameworks.filter(item=>item!==framework):[...form.frameworks,framework]});
-  return <Overlay title={item?"보고서 기본정보·디자인":"새 지속가능경영보고서"} eyebrow="REPORT SETTINGS" description="보고서의 기본정보, 적용 공시기준과 미리보기 디자인을 설정합니다." onClose={onClose}><form onSubmit={event=>{event.preventDefault();onSave(form)}}><div className="form-section"><h3><span>1</span>보고서 기본정보</h3><div className="form-grid"><label className="full-span">보고서명<input value={form.title} onChange={event=>patch({title:event.target.value})} required/></label><label>발행연도<input type="number" min="2020" max="2100" value={form.year} onChange={event=>patch({year:Number(event.target.value)})} required/></label><label>작성 대상<select value={form.organization} onChange={event=>patch({organization:event.target.value})}><option>세원그룹</option>{organizationNames.map(name=><option key={name}>{name}</option>)}</select></label><label className="full-span">보고기간<input value={form.reportingPeriod} onChange={event=>patch({reportingPeriod:event.target.value})} placeholder="예: 2025.01.01 ~ 2025.12.31" required/></label><label>작성 상태<select value={form.status} onChange={event=>patch({status:event.target.value as ReportStatus})}><option>초안</option><option>검토중</option><option>발행완료</option></select></label><label>본문 글꼴<select value={form.fontFamily} onChange={event=>patch({fontFamily:event.target.value as SustainabilityReport["fontFamily"]})}><option>Noto Sans KR</option><option>Pretendard</option><option value="serif">명조 계열</option></select></label></div></div><div className="form-section"><h3><span>2</span>디자인 설정</h3><div className="form-grid"><label>주요 색상<div className="color-field"><input type="color" value={form.primaryColor} onChange={event=>patch({primaryColor:event.target.value})}/><input value={form.primaryColor} onChange={event=>patch({primaryColor:event.target.value})}/></div></label><label>보조 색상<div className="color-field"><input type="color" value={form.accentColor} onChange={event=>patch({accentColor:event.target.value})}/><input value={form.accentColor} onChange={event=>patch({accentColor:event.target.value})}/></div></label></div></div><div className="form-section"><h3><span>3</span>적용 공시기준</h3><div className="check-group"><div>{["GRI","ESRS","KSSB"].map(framework=><label key={framework}><input type="checkbox" checked={form.frameworks.includes(framework)} onChange={()=>toggleFramework(framework)}/>{framework}</label>)}</div></div><p className="form-section-guide">ESG 지표 정의서에 등록한 공시기준 코드가 보고서 대응표에 자동 연결됩니다.</p></div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>보고서 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>저장</button></div></div></form></Overlay>;
+  return <Overlay title={item?"보고서 기본정보·디자인":"새 지속가능경영보고서"} eyebrow="REPORT SETTINGS" description="보고서의 기본정보, 적용 공시기준과 미리보기 디자인을 설정합니다." onClose={onClose}><form onSubmit={event=>{event.preventDefault();onSave(form)}}><div className="form-section"><h3><span>1</span>보고서 기본정보</h3><div className="form-grid"><label className="full-span">보고서명<input value={form.title} onChange={event=>patch({title:event.target.value})} required/></label><label>발행연도<input type="number" min="2020" max="2100" value={form.year} onChange={event=>patch({year:Number(event.target.value)})} required/></label><label>작성 대상<select value={form.organization} onChange={event=>patch({organization:event.target.value})}><option>세원그룹</option>{organizationNames.map(name=><option key={name}>{name}</option>)}</select></label><label className="full-span">보고기간<input value={form.reportingPeriod} onChange={event=>patch({reportingPeriod:event.target.value})} placeholder="예: 2025.01.01 ~ 2025.12.31" required/></label><label>작성 상태<select value={form.status} onChange={event=>patch({status:event.target.value as ReportStatus})}><option>초안</option><option>검토중</option><option>발행완료</option></select></label><label>본문 글꼴<select value={form.fontFamily} onChange={event=>patch({fontFamily:event.target.value as SustainabilityReport["fontFamily"]})}><option>Noto Sans KR</option><option>Pretendard</option><option value="serif">명조 계열</option></select></label></div></div><div className="form-section"><h3><span>2</span>디자인 설정</h3><div className="form-grid"><label>보고서 방향<select value={form.orientation??"landscape"} onChange={event=>patch({orientation:event.target.value as ReportOrientation})}><option value="landscape">가로형</option><option value="portrait">세로형</option></select></label><label>주요 색상<div className="color-field"><input type="color" value={form.primaryColor} onChange={event=>patch({primaryColor:event.target.value})}/><input value={form.primaryColor} onChange={event=>patch({primaryColor:event.target.value})}/></div></label><label>보조 색상<div className="color-field"><input type="color" value={form.accentColor} onChange={event=>patch({accentColor:event.target.value})}/><input value={form.accentColor} onChange={event=>patch({accentColor:event.target.value})}/></div></label><div className={`report-orientation-sample ${form.orientation??"landscape"}`}><span>{form.orientation==="portrait"?"세로형 A4":"가로형 A4"}</span></div></div></div><div className="form-section"><h3><span>3</span>적용 공시기준</h3><div className="check-group"><div>{["GRI","ESRS","KSSB"].map(framework=><label key={framework}><input type="checkbox" checked={form.frameworks.includes(framework)} onChange={()=>toggleFramework(framework)}/>{framework}</label>)}</div></div><p className="form-section-guide">ESG 지표 정의서에 등록한 공시기준 코드가 보고서 대응표에 자동 연결됩니다.</p></div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>보고서 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>저장</button></div></div></form></Overlay>;
 }
 
 function reportYears(report:SustainabilityReport){return [report.year-2,report.year-1,report.year]}
@@ -1334,7 +1426,8 @@ function ReportStandards({report,indicators}:{report:SustainabilityReport;indica
 
 function ReportPreview({report,records,targets,indicators}:{report:SustainabilityReport;records:ActivityRecord[];targets:ReductionTarget[];indicators:Indicator[]}){
   const style={"--report-primary":report.primaryColor,"--report-accent":report.accentColor,fontFamily:report.fontFamily} as CSSProperties;
-  return <section className="report-preview-shell"><div className="report-preview-note"><Icon name="file" size={16}/><span>캔버스에서 배치한 위치·크기·색상을 그대로 미리봅니다. 상단의 PDF 인쇄 버튼으로 저장할 수 있습니다.</span></div><article className="report-preview-document" style={style}><section className="report-cover"><div className="report-cover-mark">SEWON</div><div><span>{report.year} SUSTAINABILITY REPORT</span><h1>{report.title}</h1><p>{report.organization}</p></div><footer><span>{report.reportingPeriod}</span><span>{report.frameworks.join(" · ")}</span></footer></section>{report.pages.map((page,index)=><section className="report-preview-page" key={page.id}><header><span>{page.section.toUpperCase()}</span><em>{String(index+1).padStart(2,"0")}</em></header><h2>{page.title}</h2><div className="report-preview-canvas">{page.blocks.map((block,blockIndex)=>{const layout=reportBlockLayout(block,blockIndex);return <div className={`report-preview-positioned ${block.type}`} key={block.id} style={{left:`${layout.x}%`,top:`${layout.y}%`,width:`${layout.w}%`,height:`${layout.h}%`,zIndex:blockIndex+1,color:block.color??"#263832",backgroundColor:block.backgroundColor??"transparent",textAlign:block.textAlign??"left",border:block.border?"1px solid #b9cfc6":"1px solid transparent"} as CSSProperties}><ReportCanvasBlockContent block={block} report={report} records={records} targets={targets} indicators={indicators}/></div>})}</div></section>)}</article></section>;
+  const orientation=report.orientation??"landscape";
+  return <section className="report-preview-shell"><div className="report-preview-note"><Icon name="file" size={16}/><span>{orientation==="portrait"?"세로형":"가로형"} 캔버스의 위치·크기·색상을 그대로 미리봅니다. 상단의 PDF 인쇄 버튼으로 저장할 수 있습니다.</span></div><article className={`report-preview-document orientation-${orientation}`} style={style}><section className="report-cover"><div className="report-cover-mark">SEWON</div><div><span>{report.year} SUSTAINABILITY REPORT</span><h1>{report.title}</h1><p>{report.organization}</p></div><footer><span>{report.reportingPeriod}</span><span>{report.frameworks.join(" · ")}</span></footer></section>{report.pages.map((page,index)=><section className="report-preview-page" key={page.id}><header><span>{page.section.toUpperCase()}</span><em>{String(index+1).padStart(2,"0")}</em></header><h2>{page.title}</h2><div className="report-preview-canvas">{page.blocks.map((block,blockIndex)=>{const layout=reportBlockLayout(block,blockIndex);return <div className={`report-preview-positioned ${block.type}`} key={block.id} style={{left:`${layout.x}%`,top:`${layout.y}%`,width:`${layout.w}%`,height:`${layout.h}%`,zIndex:blockIndex+1,color:block.color??"#263832",backgroundColor:block.backgroundColor??"transparent",textAlign:block.textAlign??"left",border:block.border?"1px solid #b9cfc6":"1px solid transparent"} as CSSProperties}><ReportCanvasBlockContent block={block} report={report} records={records} targets={targets} indicators={indicators}/></div>})}</div></section>)}</article></section>;
 }
 
 function AuditLog({ items, showToast }: { items: AuditEvent[]; showToast: (m: string) => void }) {

@@ -146,6 +146,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (!supabase) return;
 
     let mounted = true;
+    let loadedUserId: string | null = null;
 
     const load = async (currentSession: Session | null) => {
       if (!mounted) return;
@@ -165,6 +166,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         const workspace = normalizeWorkspace(result.payload);
         writeWorkspaceToBrowser(workspace);
         lastWorkspace.current = JSON.stringify(workspace);
+        loadedUserId = currentSession.user.id;
         setProfile(result.profile);
         setError("");
         setWorkspaceReady(true);
@@ -178,7 +180,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     };
 
     void supabase.auth.getSession().then(({ data }) => load(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // Supabase can emit SIGNED_IN again when a background tab is restored and
+      // TOKEN_REFRESHED whenever the access token rotates. Re-loading the whole
+      // workspace for those routine events unmounted the editor and looked like
+      // a page refresh. Keep the refreshed session without replacing the UI.
+      if (event === "INITIAL_SESSION") return;
+      if (event === "TOKEN_REFRESHED" || (event === "SIGNED_IN" && nextSession?.user.id === loadedUserId)) {
+        setSession(nextSession);
+        return;
+      }
+      if (!nextSession) loadedUserId = null;
       setLoading(true);
       void load(nextSession);
     });
