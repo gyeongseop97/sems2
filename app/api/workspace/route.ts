@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { DEFAULT_EMISSION_FACTORS, withDefaultEmissionFactors } from "@/lib/emission-factor-library";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,7 @@ type Profile = {
 const EMPTY_WORKSPACE: WorkspacePayload = {
   periods: [],
   records: [],
-  factors: [],
+  factors: DEFAULT_EMISSION_FACTORS,
   evidence: [],
   indicators: [],
   metricRequests: [],
@@ -68,7 +69,7 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
   return {
     periods: Array.isArray(payload.periods) ? payload.periods : [],
     records: Array.isArray(payload.records) ? payload.records : [],
-    factors: Array.isArray(payload.factors) ? payload.factors : [],
+    factors: withDefaultEmissionFactors(Array.isArray(payload.factors) ? payload.factors : []),
     evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
     indicators: Array.isArray(payload.indicators) ? payload.indicators : [],
     metricRequests: Array.isArray(payload.metricRequests) ? payload.metricRequests : [],

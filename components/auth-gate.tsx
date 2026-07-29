@@ -9,6 +9,7 @@ import {
   type SyncStatus,
   WORKSPACE_CHANGE_EVENT,
 } from "@/components/auth-context";
+import { DEFAULT_EMISSION_FACTORS, withDefaultEmissionFactors } from "@/lib/emission-factor-library";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import styles from "./auth-gate.module.css";
@@ -33,7 +34,7 @@ type WorkspacePayload = {
 const EMPTY_WORKSPACE: WorkspacePayload = {
   periods: [],
   records: [],
-  factors: [],
+  factors: DEFAULT_EMISSION_FACTORS,
   evidence: [],
   indicators: [],
   metricRequests: [],
@@ -79,7 +80,7 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
   return {
     periods: Array.isArray(payload.periods) ? payload.periods : [],
     records: Array.isArray(payload.records) ? payload.records : [],
-    factors: Array.isArray(payload.factors) ? payload.factors : [],
+    factors: withDefaultEmissionFactors(Array.isArray(payload.factors) ? payload.factors : []),
     evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
     indicators: Array.isArray(payload.indicators) ? payload.indicators : [],
     metricRequests: Array.isArray(payload.metricRequests) ? payload.metricRequests : [],
