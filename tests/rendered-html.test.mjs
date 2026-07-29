@@ -40,6 +40,10 @@ test("preserves the latest operating workflow and readable type scale", async ()
   ]);
 
   assert.match(page, /감축목표·이행계획/);
+  assert.match(page, /연도별 목표·실적 모니터링/);
+  assert.match(page, /배출 전망/);
+  assert.match(page, /"내부 감축" \| "외부 감축" \| "비정량 과제"/);
+  assert.match(page, /연간 절감비/);
   assert.match(page, /"예정" \| "수집중" \| "검토중" \| "마감" \| "잠금"/);
   assert.match(page, /title="변경 이력"/);
   assert.match(styles, /body \{ font-size: 16px; line-height: 1\.58; \}/);
