@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import styles from "./users.module.css";
 
@@ -66,7 +67,7 @@ export default function UserManagementPage() {
     siteId: "",
   });
 
-  const request = async (url: string, init?: RequestInit) => {
+  const request = useCallback(async (url: string, init?: RequestInit) => {
     if (!supabase) throw new Error("Supabase 연결 정보가 없습니다.");
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
@@ -83,9 +84,9 @@ export default function UserManagementPage() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error ?? "요청을 처리하지 못했습니다.");
     return payload;
-  };
+  }, [supabase]);
 
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -98,11 +99,12 @@ export default function UserManagementPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [request]);
 
   useEffect(() => {
-    void loadUsers();
-  }, []);
+    const timer = window.setTimeout(() => void loadUsers(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadUsers]);
 
   const formSites = useMemo(
     () => sites.filter((site) => site.active && site.organization_id === form.organizationId),
@@ -177,7 +179,7 @@ export default function UserManagementPage() {
             <h1>사용자 및 권한 관리</h1>
             <p>SEMS 계정을 생성하고 법인·사업장별 접근 권한을 관리합니다.</p>
           </div>
-          <a className={styles.back} href="/">SEMS로 돌아가기</a>
+          <Link className={styles.back} href="/">SEMS로 돌아가기</Link>
         </header>
 
         {error && <p className={styles.error}>{error}</p>}

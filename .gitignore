@@ -40,3 +40,10 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+
+# generated static export (the production app requires Vercel server routes)
+/_next/
+/404/
+/_not-found/
+/index.html
+/.nojekyll

@@ -305,25 +305,38 @@ create policy "authenticated users insert audit" on public.audit_events for inse
 create policy "authenticated users read settings" on public.app_settings for select to authenticated using (true);
 create policy "admins manage settings" on public.app_settings for all to authenticated using (public.current_profile_role() = 'admin') with check (public.current_profile_role() = 'admin');
 
-insert into storage.buckets (id, name, public)
-values ('sems-evidence', 'sems-evidence', false)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'sems2-evidence',
+  'sems2-evidence',
+  false,
+  20971520,
+  array[
+    'application/pdf',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/png'
+  ]
+)
 on conflict (id) do nothing;
 
 create policy "authenticated users read evidence files"
 on storage.objects for select to authenticated
-using (bucket_id = 'sems-evidence');
+using (bucket_id = 'sems2-evidence');
 
 create policy "editors upload evidence files"
 on storage.objects for insert to authenticated
-with check (bucket_id = 'sems-evidence' and public.current_profile_role() in ('admin', 'manager', 'editor'));
+with check (bucket_id = 'sems2-evidence' and public.current_profile_role() in ('admin', 'manager', 'editor'));
 
 create policy "owners and managers update evidence files"
 on storage.objects for update to authenticated
-using (bucket_id = 'sems-evidence' and (owner_id = auth.uid()::text or public.current_profile_role() in ('admin', 'manager')))
-with check (bucket_id = 'sems-evidence');
+using (bucket_id = 'sems2-evidence' and (owner_id = auth.uid()::text or public.current_profile_role() in ('admin', 'manager')))
+with check (bucket_id = 'sems2-evidence');
 
 create policy "owners and managers delete evidence files"
 on storage.objects for delete to authenticated
-using (bucket_id = 'sems-evidence' and (owner_id = auth.uid()::text or public.current_profile_role() in ('admin', 'manager')));
+using (bucket_id = 'sems2-evidence' and (owner_id = auth.uid()::text or public.current_profile_role() in ('admin', 'manager')));
 
 -- No sample operational data is inserted intentionally.

@@ -2,19 +2,16 @@
 
 import type { Session } from "@supabase/supabase-js";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import styles from "./auth-gate.module.css";
 
-type Profile = {
-  id: string;
-  email: string | null;
-  display_name: string;
-  department: string;
-  role: "admin" | "manager" | "editor" | "viewer";
-  active: boolean;
-  organization_id: string | null;
-  organization?: { name: string } | null;
-};
+import {
+  AuthContext,
+  type SemsProfile,
+  type SyncStatus,
+  WORKSPACE_CHANGE_EVENT,
+} from "@/components/auth-context";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+
+import styles from "./auth-gate.module.css";
 
 type WorkspacePayload = {
   periods: unknown[];
@@ -93,7 +90,6 @@ function writeWorkspaceToBrowser(payload: WorkspacePayload) {
 
 function readWorkspaceFromBrowser(): WorkspacePayload {
   const result = { ...EMPTY_WORKSPACE } as WorkspacePayload;
-
   for (const key of Object.keys(STORAGE_KEYS) as (keyof WorkspacePayload)[]) {
     const raw = window.localStorage.getItem(STORAGE_KEYS[key]);
     if (!raw) continue;
@@ -103,48 +99,46 @@ function readWorkspaceFromBrowser(): WorkspacePayload {
       result[key] = EMPTY_WORKSPACE[key] as never;
     }
   }
-
   return normalizeWorkspace(result);
 }
 
-function workspaceScope(profile: Profile) {
-  if (profile.role === "admin" || profile.role === "manager") {
-    return { scopeKey: "global", organizationId: null };
+async function fetchWorkspace(session: Session) {
+  const response = await fetch("/api/workspace", {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    cache: "no-store",
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error ?? "운영 데이터를 불러오지 못했습니다.");
   }
-
-  return {
-    scopeKey: profile.organization_id ? `organization:${profile.organization_id}` : "",
-    organizationId: profile.organization_id,
-  };
+  return payload as { profile: SemsProfile; payload: WorkspacePayload };
 }
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const supabase = getSupabaseBrowserClient();
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<SemsProfile | null>(null);
+  const [loading, setLoading] = useState(Boolean(supabase));
   const [workspaceReady, setWorkspaceReady] = useState(false);
-  const [appVisible, setAppVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("saved");
   const lastWorkspace = useRef("");
   const syncRunning = useRef(false);
+  const syncQueued = useRef(false);
 
   useEffect(() => {
-    if (!supabase) {
-      setLoading(false);
-      return;
-    }
+    if (!supabase) return;
 
     let mounted = true;
 
-    const loadProfileAndWorkspace = async (currentSession: Session | null) => {
+    const load = async (currentSession: Session | null) => {
       if (!mounted) return;
       setSession(currentSession);
       setWorkspaceReady(false);
-      setAppVisible(false);
+      setSyncStatus("saved");
 
       if (!currentSession) {
         setProfile(null);
@@ -152,60 +146,28 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const { data, error: profileError } = await supabase
-        .from("profiles")
-        .select("id,email,display_name,department,role,active,organization_id,organization:organizations(name)")
-        .eq("id", currentSession.user.id)
-        .single();
-
-      if (!mounted) return;
-
-      if (profileError) {
-        setError("사용자 권한 정보를 불러오지 못했습니다. Supabase 스키마 적용 여부를 확인해 주세요.");
+      try {
+        const result = await fetchWorkspace(currentSession);
+        if (!mounted) return;
+        const workspace = normalizeWorkspace(result.payload);
+        writeWorkspaceToBrowser(workspace);
+        lastWorkspace.current = JSON.stringify(workspace);
+        setProfile(result.profile);
+        setError("");
+        setWorkspaceReady(true);
+      } catch (loadError) {
+        if (!mounted) return;
+        setError(loadError instanceof Error ? loadError.message : "사용자 권한과 운영 데이터를 불러오지 못했습니다.");
         setProfile(null);
-        setLoading(false);
-        return;
+      } finally {
+        if (mounted) setLoading(false);
       }
-
-      const nextProfile = data as unknown as Profile;
-      const { scopeKey } = workspaceScope(nextProfile);
-
-      if (!scopeKey) {
-        setError("사용자에게 소속 법인이 지정되지 않았습니다. 관리자에게 권한 설정을 요청해 주세요.");
-        setProfile(nextProfile);
-        setLoading(false);
-        return;
-      }
-
-      const { data: workspace, error: workspaceError } = await supabase
-        .from("workspace_states")
-        .select("payload")
-        .eq("scope_key", scopeKey)
-        .maybeSingle();
-
-      if (!mounted) return;
-
-      if (workspaceError) {
-        setError("공용 운영 데이터를 불러오지 못했습니다. workspace_states 마이그레이션 적용 여부를 확인해 주세요.");
-        setProfile(nextProfile);
-        setLoading(false);
-        return;
-      }
-
-      const payload = normalizeWorkspace(workspace?.payload ?? EMPTY_WORKSPACE);
-      writeWorkspaceToBrowser(payload);
-      lastWorkspace.current = JSON.stringify(payload);
-      setError("");
-      setProfile(nextProfile);
-      setWorkspaceReady(true);
-      setLoading(false);
     };
 
-    supabase.auth.getSession().then(({ data }) => loadProfileAndWorkspace(data.session));
-
+    void supabase.auth.getSession().then(({ data }) => load(data.session));
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setLoading(true);
-      void loadProfileAndWorkspace(nextSession);
+      void load(nextSession);
     });
 
     return () => {
@@ -215,63 +177,77 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [supabase]);
 
   useEffect(() => {
-    if (!workspaceReady || !profile || !session || !supabase) return;
+    if (!workspaceReady || !profile || !session || profile.role === "viewer") return;
 
-    const revealTimer = window.setTimeout(() => setAppVisible(true), 250);
-
-    if (profile.role === "viewer") {
-      return () => window.clearTimeout(revealTimer);
-    }
-
-    const { scopeKey, organizationId } = workspaceScope(profile);
-    const syncTimer = window.setInterval(async () => {
-      if (syncRunning.current) return;
+    const sync = async () => {
+      if (syncRunning.current) {
+        syncQueued.current = true;
+        return;
+      }
 
       const payload = readWorkspaceFromBrowser();
       const serialized = JSON.stringify(payload);
-      if (serialized === lastWorkspace.current) return;
+      if (serialized === lastWorkspace.current) {
+        setSyncStatus("saved");
+        return;
+      }
 
       syncRunning.current = true;
-      const { error: syncError } = await supabase
-        .from("workspace_states")
-        .upsert({
-          scope_key: scopeKey,
-          organization_id: organizationId,
-          payload,
-          updated_by: session.user.id,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "scope_key" });
-
-      if (!syncError) {
+      setSyncStatus("saving");
+      try {
+        const response = await fetch("/api/workspace", {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ payload }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error ?? "서버 저장에 실패했습니다.");
         lastWorkspace.current = serialized;
+        setSyncStatus("saved");
+      } catch {
+        setSyncStatus("error");
+      } finally {
+        syncRunning.current = false;
+        if (syncQueued.current) {
+          syncQueued.current = false;
+          void sync();
+        }
       }
-      syncRunning.current = false;
-    }, 1800);
+    };
+
+    let debounceTimer = 0;
+    const scheduleSync = () => {
+      setSyncStatus("saving");
+      window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => void sync(), 450);
+    };
+    const safetyTimer = window.setInterval(() => void sync(), 15000);
+    window.addEventListener(WORKSPACE_CHANGE_EVENT, scheduleSync);
 
     return () => {
-      window.clearTimeout(revealTimer);
-      window.clearInterval(syncTimer);
+      window.clearTimeout(debounceTimer);
+      window.clearInterval(safetyTimer);
+      window.removeEventListener(WORKSPACE_CHANGE_EVENT, scheduleSync);
     };
-  }, [profile, session, supabase, workspaceReady]);
+  }, [profile, session, workspaceReady]);
 
   const signIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!supabase) return;
-
     setSubmitting(true);
     setError("");
-
     const { error: signInError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
-
     if (signInError) {
       setError("이메일 또는 비밀번호를 확인해 주세요.");
       setSubmitting(false);
       return;
     }
-
     setPassword("");
     setSubmitting(false);
   };
@@ -286,7 +262,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       <main className={styles.screen}>
         <div className={styles.loading}>
           <span className={styles.spinner} />
-          <span>SEMS 사용자 정보를 확인하고 있습니다.</span>
+          <span>SEMS 사용자 정보와 운영 데이터를 불러오고 있습니다.</span>
         </div>
       </main>
     );
@@ -298,13 +274,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <section className={styles.card}>
           <Brand />
           <h1>Supabase 연결이 필요합니다.</h1>
-          <p className={styles.description}>
-            Vercel 프로젝트에 환경변수를 등록하면 로그인 화면이 활성화됩니다.
-          </p>
-          <p className={styles.error}>
-            NEXT_PUBLIC_SUPABASE_URL과 NEXT_PUBLIC_SUPABASE_ANON_KEY가 설정되지 않았습니다.
-          </p>
-          <p className={styles.note}>비밀키가 아닌 Supabase Project URL과 Publishable/Anon Key만 등록합니다.</p>
+          <p className={styles.description}>Vercel 프로젝트에 환경변수를 등록하면 로그인 화면이 활성화됩니다.</p>
+          <p className={styles.error}>NEXT_PUBLIC_SUPABASE_URL과 NEXT_PUBLIC_SUPABASE_ANON_KEY가 설정되지 않았습니다.</p>
+          <p className={styles.note}>비밀키가 아닌 Supabase Project URL과 Publishable/Anon Key만 브라우저에 사용합니다.</p>
         </section>
       </main>
     );
@@ -316,7 +288,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <section className={styles.card}>
           <Brand />
           <h1>SEMS 로그인</h1>
-          <p className={styles.description}>등록된 회사 계정으로 로그인해 주세요.</p>
+          <p className={styles.description}>관리자가 등록한 회사 계정으로 로그인해 주세요.</p>
           <form className={styles.form} onSubmit={signIn}>
             <label className={styles.field}>
               이메일
@@ -345,7 +317,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
               {submitting ? "로그인 중..." : "로그인"}
             </button>
           </form>
-          <p className={styles.note}>계정 생성과 권한 부여는 SEMS 관리자만 수행합니다.</p>
+          <p className={styles.note}>계정 생성과 법인·사업장 권한 부여는 SEMS 관리자만 수행합니다.</p>
         </section>
       </main>
     );
@@ -357,38 +329,36 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
         <section className={styles.card}>
           <Brand />
           <h1>접근 권한을 확인해 주세요.</h1>
-          <p className={styles.description}>
-            로그인은 완료되었지만 SEMS 사용 권한 또는 운영 데이터 연결이 활성화되지 않았습니다.
-          </p>
+          <p className={styles.description}>로그인은 완료되었지만 SEMS 사용 권한 또는 서버 데이터 연결이 활성화되지 않았습니다.</p>
           {error && <p className={styles.error}>{error}</p>}
-          <button className={styles.secondaryButton} type="button" onClick={signOut}>
-            로그아웃
-          </button>
+          <button className={styles.secondaryButton} type="button" onClick={signOut}>로그아웃</button>
         </section>
       </main>
     );
   }
 
-  const roleLabel = {
-    admin: "관리자",
-    manager: "기획실 관리자",
-    editor: "자료 입력자",
-    viewer: "조회자",
-  }[profile.role];
+  const isAdmin = profile.role === "admin";
+  const canManage = profile.role === "admin" || profile.role === "manager";
+  const canWrite = profile.role !== "viewer";
+  const contextValue = {
+    profile,
+    syncStatus,
+    canWrite,
+    canReview: canManage,
+    canManage,
+    isAdmin,
+  };
 
   return (
-    <>
-      <div style={{ opacity: appVisible ? 1 : 0, pointerEvents: appVisible ? "auto" : "none", transition: "opacity 120ms ease" }}>
-        {children}
-      </div>
-      <div className={styles.session} aria-label="현재 로그인 정보">
+    <AuthContext.Provider value={contextValue}>
+      {children}
+      <button className={styles.session} type="button" onClick={signOut} aria-label="로그아웃">
         <div className={styles.sessionText}>
           <strong>{profile.display_name || profile.email}</strong>
-          <span>{profile.organization?.name ?? "전체 법인"} · {roleLabel}</span>
+          <span>{profile.organization?.name ?? "전체 법인"} · 로그아웃</span>
         </div>
-        <button className={styles.logout} type="button" onClick={signOut}>로그아웃</button>
-      </div>
-    </>
+      </button>
+    </AuthContext.Provider>
   );
 }
 

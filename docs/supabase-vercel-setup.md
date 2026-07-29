@@ -6,8 +6,12 @@ Open **Supabase > SQL Editor** and run these files in order.
 
 1. `supabase/schema.sql`
 2. `supabase/migrations/20260724_workspace_state.sql`
+3. `supabase/migrations/20260729_evidence_library.sql`
+4. `supabase/migrations/20260729_remove_demo_workspace.sql`
 
-The schema intentionally inserts no sample operational data.
+The schema intentionally inserts no sample operational data. The last migration
+clears a workspace only when one of the known legacy demo markers is present, so
+it does not erase a real workspace.
 
 ## 2. Create the first administrator
 
@@ -65,7 +69,21 @@ The existing SEMS interface is connected to Supabase through `workspace_states` 
 - Editor: assigned organization workspace
 - Viewer: read-only assigned organization workspace
 
-Operational sample data is cleared when a new empty workspace is loaded. The existing screens will be migrated incrementally to the normalized tables in `supabase/schema.sql`.
+The browser keeps a temporary cache for rendering speed, but `/api/workspace`
+loads and saves the authoritative state in Supabase. Every request is checked
+against the authenticated profile:
+
+- Admin: global configuration, organizations, sites, users, and all operating data
+- Manager: global configuration and all operating data
+- Editor: records, evidence, targets, and plans for the assigned organization
+- Viewer: read-only data for the assigned organization
+
+The service-role key is used only inside the server route after the access token
+and profile role have been verified. The browser never receives it.
+
+Evidence files are stored in the private `sems2-evidence` bucket. The application
+uses short-lived signed URLs for downloads and keeps document metadata, indicator
+links, framework mappings, version, validity, and review state in the workspace.
 
 ## 6. Health check
 
