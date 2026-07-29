@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
 import { useSemsAuth, WORKSPACE_CHANGE_EVENT } from "@/components/auth-context";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "periods" | "collection" | "review" | "quality" | "inventory" | "targets" | "evidence" | "indicators" | "audit" | "settings";
+type View = "dashboard" | "periods" | "collection" | "review" | "quality" | "inventory" | "targets" | "evidence" | "indicators" | "metric-collection" | "reports" | "audit" | "settings";
 type Scope = "Scope 1" | "Scope 2" | "Scope 3";
 type RecordStatus = "작성중" | "검토대기" | "반려" | "확정";
 type EvidenceStatus = "검토중" | "승인" | "보완 요청" | "만료";
@@ -118,6 +118,7 @@ type Indicator = {
   category: "환경" | "사회" | "지배구조";
   unit: string;
   cycle: string;
+  aggregation?: "합계" | "평균" | "최종값";
   owner: string;
   reviewer: string;
   progress: number;
@@ -130,6 +131,70 @@ type Indicator = {
   frameworks: string[];
   dueDate: string;
   active: boolean;
+};
+
+type MetricRequestStatus = "예정" | "수집중" | "검토중" | "마감";
+type MetricSubmissionStatus = "작성중" | "검토대기" | "반려" | "확정";
+type MetricRequest = {
+  id: string;
+  title: string;
+  periodFrom: string;
+  periodTo: string;
+  dueDate: string;
+  companies: string[];
+  indicatorIds: number[];
+  description: string;
+  status: MetricRequestStatus;
+  updatedAt: string;
+};
+type MetricSubmission = {
+  id: number;
+  requestId: string;
+  indicatorId: number;
+  company: string;
+  site: string;
+  period: string;
+  value: number;
+  unit: string;
+  owner: string;
+  department: string;
+  evidence: string;
+  description: string;
+  status: MetricSubmissionStatus;
+  rejectionReason?: string;
+  updatedAt: string;
+};
+
+type ReportStatus = "초안" | "검토중" | "발행완료";
+type ReportSection = "보고서 개요" | "환경" | "사회" | "지배구조" | "부록";
+type ReportDataSource = "온실가스 배출량" | "감축목표" | "ESG 지표";
+type ReportBlock = {
+  id: string;
+  type: "text" | "data" | "callout" | "divider";
+  title: string;
+  body: string;
+  dataSource?: ReportDataSource;
+};
+type ReportPage = {
+  id: string;
+  title: string;
+  section: ReportSection;
+  blocks: ReportBlock[];
+};
+type SustainabilityReport = {
+  id: string;
+  title: string;
+  year: number;
+  organization: string;
+  reportingPeriod: string;
+  status: ReportStatus;
+  primaryColor: string;
+  accentColor: string;
+  fontFamily: "Noto Sans KR" | "Pretendard" | "serif";
+  frameworks: string[];
+  pages: ReportPage[];
+  updatedAt: string;
+  publishedAt?: string;
 };
 
 type TargetStatus = "초안" | "승인" | "종료";
@@ -197,6 +262,8 @@ const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "targets", label: "감축목표·이행계획", icon: "target" },
   { id: "evidence", label: "증빙자료", icon: "file" },
   { id: "indicators", label: "ESG 지표 관리", icon: "list" },
+  { id: "metric-collection", label: "ESG 정량데이터 수집", icon: "database" },
+  { id: "reports", label: "지속가능경영보고서", icon: "edit" },
   { id: "audit", label: "변경 이력", icon: "clock" },
 ];
 
@@ -419,6 +486,9 @@ export default function Home() {
   const [factors, setFactors] = useState<EmissionFactor[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
+  const [metricRequests, setMetricRequests] = useState<MetricRequest[]>([]);
+  const [metricSubmissions, setMetricSubmissions] = useState<MetricSubmission[]>([]);
+  const [reports, setReports] = useState<SustainabilityReport[]>([]);
   const [targets, setTargets] = useState<ReductionTarget[]>([]);
   const [plans, setPlans] = useState<ReductionPlan[]>([]);
   const [periods, setPeriods] = useState<CollectionPeriod[]>([]);
@@ -445,6 +515,9 @@ export default function Home() {
         const savedFactors = localStorage.getItem("sems2-factors"); if (savedFactors) setFactors(JSON.parse(savedFactors));
         const savedEvidence = localStorage.getItem("sems2-evidence"); if (savedEvidence) setEvidence(JSON.parse(savedEvidence));
         const savedIndicators = localStorage.getItem("sems2-indicators"); if (savedIndicators) setIndicators(JSON.parse(savedIndicators));
+        const savedMetricRequests = localStorage.getItem("sems2-metric-requests"); if (savedMetricRequests) setMetricRequests(JSON.parse(savedMetricRequests));
+        const savedMetricSubmissions = localStorage.getItem("sems2-metric-submissions"); if (savedMetricSubmissions) setMetricSubmissions(JSON.parse(savedMetricSubmissions));
+        const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(JSON.parse(savedReports));
         const savedTargets = localStorage.getItem("sems2-targets"); if (savedTargets) setTargets(JSON.parse(savedTargets));
         const savedPlans = localStorage.getItem("sems2-reduction-plans"); if (savedPlans) setPlans(JSON.parse(savedPlans));
         const savedAudit = localStorage.getItem("sems2-audit"); if (savedAudit) setAudit(JSON.parse(savedAudit));
@@ -464,6 +537,9 @@ export default function Home() {
       "sems2-factors": factors,
       "sems2-evidence": evidence,
       "sems2-indicators": indicators,
+      "sems2-metric-requests": metricRequests,
+      "sems2-metric-submissions": metricSubmissions,
+      "sems2-reports": reports,
       "sems2-targets": targets,
       "sems2-reduction-plans": plans,
       "sems2-audit": audit,
@@ -475,7 +551,7 @@ export default function Home() {
       localStorage.setItem(key, JSON.stringify(value));
     }
     window.dispatchEvent(new Event(WORKSPACE_CHANGE_EVENT));
-  }, [periods, records, factors, evidence, indicators, targets, plans, audit, criteria, noticePrefs, organizations, hydrated, canWrite]);
+  }, [periods, records, factors, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations, hydrated, canWrite]);
   useEffect(() => { document.body.classList.toggle("menu-open", mobileMenu || modalOpen || bulkOpen || guideOpen); return () => document.body.classList.remove("menu-open"); }, [mobileMenu, modalOpen, bulkOpen, guideOpen]);
 
   const showToast = (message: string) => { setToast(message); window.setTimeout(() => setToast(""), 2600); };
@@ -514,7 +590,7 @@ export default function Home() {
     setBulkOpen(false); showToast(`${rows.length}건을 일괄 등록했습니다.`);
   };
   const exportBackup = () => {
-    const payload = { version: 3, exportedAt: new Date().toISOString(), periods, records, factors, evidence, indicators, targets, plans, audit, criteria, noticePrefs, organizations };
+    const payload = { version: 5, exportedAt: new Date().toISOString(), periods, records, factors, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SEMS_backup_${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
     showToast("전체 운영 데이터를 백업했습니다.");
   };
@@ -523,6 +599,8 @@ export default function Home() {
     if (!Array.isArray(payload.periods) || !Array.isArray(payload.records) || !Array.isArray(payload.factors)) { showToast("SEMS 백업 파일 형식이 아닙니다."); return; }
     setPeriods(payload.periods as CollectionPeriod[]); setRecords(payload.records as ActivityRecord[]); setFactors(payload.factors as EmissionFactor[]);
     if (Array.isArray(payload.evidence)) setEvidence(payload.evidence as EvidenceItem[]); if (Array.isArray(payload.indicators)) setIndicators(payload.indicators as Indicator[]); if (Array.isArray(payload.audit)) setAudit(payload.audit as AuditEvent[]);
+    if (Array.isArray(payload.metricRequests)) setMetricRequests(payload.metricRequests as MetricRequest[]); if (Array.isArray(payload.metricSubmissions)) setMetricSubmissions(payload.metricSubmissions as MetricSubmission[]);
+    if (Array.isArray(payload.reports)) setReports(payload.reports as SustainabilityReport[]);
     if (Array.isArray(payload.targets)) setTargets(payload.targets as ReductionTarget[]); if (Array.isArray(payload.plans)) setPlans(payload.plans as ReductionPlan[]);
     if (payload.criteria) setCriteria(payload.criteria as CollectionCriteria); if (payload.noticePrefs) setNoticePrefs(payload.noticePrefs as NotificationPrefs);
     if (payload.organizations) setOrganizations(payload.organizations as Record<string,string[]>);
@@ -556,6 +634,8 @@ export default function Home() {
         {activeView === "targets" && <TargetsAndPlans targets={targets} plans={plans} records={records} organizations={organizations} onTargetsChange={items=>{if(!canManage){showToast("감축목표 관리는 관리자 권한이 필요합니다.");return;}setTargets(items);}} onPlansChange={items=>{if(!canManage){showToast("감축계획 관리는 관리자 권한이 필요합니다.");return;}setPlans(items);}} addAudit={addAudit} showToast={showToast} />}
         {activeView === "evidence" && <Evidence items={evidence} onChange={setEvidence} showToast={showToast} />}
         {activeView === "indicators" && <Indicators items={indicators} onChange={setIndicators} showToast={showToast} />}
+        {activeView === "metric-collection" && <MetricCollection requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}
+        {activeView === "reports" && <ReportBuilder reports={reports} records={records} targets={targets} indicators={indicators} organizationNames={organizationNames} canManage={canManage} onChange={setReports} addAudit={addAudit} showToast={showToast} />}
         {activeView === "audit" && <AuditLog items={audit} showToast={showToast} />}
         {activeView === "settings" && <Settings factors={factors} onFactorsChange={setFactors} criteria={criteria} onCriteriaChange={setCriteria} noticePrefs={noticePrefs} onNoticePrefsChange={setNoticePrefs} organizations={organizations} onOrganizationsChange={setOrganizations} onExport={exportBackup} onRestore={restoreBackup} showToast={showToast} />}
       </main>
@@ -1006,9 +1086,153 @@ function average(items:Indicator[]){return items.length?Math.round(items.reduce(
 function PillarCard({code,title,count,color,progress}:{code:string;title:string;count:number;color:string;progress:number}){return <article className={`pillar-card ${color}`}><div className="pillar-letter">{code}</div><div><span>{title} 지표</span><strong>{count}<small>개 지표</small></strong><p>평균 수집률 <b>{progress}%</b></p></div><div className="pillar-progress" style={{background:`conic-gradient(currentColor ${progress}%, #edf1f0 0)`}}><span/></div></article>}
 
 function IndicatorForm({item,onClose,onSave,onDelete}:{item:Indicator|null;onClose:()=>void;onSave:(item:Indicator)=>void;onDelete?:()=>void}){
-  const [form,setForm]=useState<Indicator>(item??{id:0,code:"",name:"",category:"환경",unit:"",cycle:"월",owner:"",reviewer:"",progress:0,status:"미작성",definition:"",boundary:"",formula:"",dataSource:"",evidenceExample:"",frameworks:[],dueDate:"",active:true});
+  const [form,setForm]=useState<Indicator>(item??{id:0,code:"",name:"",category:"환경",unit:"",cycle:"월",aggregation:"합계",owner:"",reviewer:"",progress:0,status:"미작성",definition:"",boundary:"",formula:"",dataSource:"",evidenceExample:"",frameworks:[],dueDate:"",active:true});
   const patch=(value:Partial<Indicator>)=>setForm(current=>({...current,...value}));
   return <Overlay title={item?"ESG 지표 정의서 수정":"ESG 지표 정의서 등록"} eyebrow="METRIC MASTER" description="담당자가 바뀌어도 동일한 기준으로 수집·검토할 수 있도록 정의와 운영 규칙을 구체적으로 등록합니다." onClose={onClose}><form onSubmit={event=>{event.preventDefault();onSave(form)}}><div className="form-section"><h3><span>1</span>지표 기본정보</h3><div className="form-grid"><label>지표 코드<input value={form.code} onChange={event=>patch({code:event.target.value.toUpperCase()})} required/></label><label>구분<select value={form.category} onChange={event=>patch({category:event.target.value as Indicator["category"]})}><option>환경</option><option>사회</option><option>지배구조</option></select></label><label className="full-span">지표명<input value={form.name} onChange={event=>patch({name:event.target.value})} required/></label><label className="full-span textarea-label">지표 정의<textarea value={form.definition} onChange={event=>patch({definition:event.target.value})} placeholder="무엇을 측정하는 지표인지 명확히 적어 주세요." required/></label><label className="full-span textarea-label">포함·제외 범위<textarea value={form.boundary} onChange={event=>patch({boundary:event.target.value})} placeholder="포함 조직·사업장·대상과 제외 조건을 적어 주세요." required/></label><label>단위<input value={form.unit} onChange={event=>patch({unit:event.target.value})} required/></label><label>수집 주기<select value={form.cycle} onChange={event=>patch({cycle:event.target.value})}><option>월</option><option>분기</option><option>반기</option><option>연</option><option>수시</option></select></label><label className="full-span">산식<input value={form.formula} onChange={event=>patch({formula:event.target.value})} placeholder="예: Scope 1 + Scope 2 배출량" required/></label><label className="full-span">데이터 원천<input value={form.dataSource} onChange={event=>patch({dataSource:event.target.value})} placeholder="예: 전기요금서, SAP 구매내역, 안전보건 시스템" required/></label></div></div><div className="form-section"><h3><span>2</span>담당·승인·제출</h3><div className="form-grid"><label>담당 부서·담당자<input value={form.owner} onChange={event=>patch({owner:event.target.value})} required/></label><label>승인 부서·승인자<input value={form.reviewer} onChange={event=>patch({reviewer:event.target.value})} required/></label><label>제출 상태<select value={form.status} onChange={event=>patch({status:event.target.value as IndicatorStatus})}><option>미작성</option><option>작성중</option><option>제출</option><option>반려</option><option>승인</option></select></label><label>마감일<input type="date" value={form.dueDate} onChange={event=>patch({dueDate:event.target.value})}/></label><label>수집률 (%)<input type="number" min="0" max="100" value={form.progress} onChange={event=>patch({progress:Number(event.target.value)})}/></label><Toggle label="사용 중인 지표" checked={form.active} onChange={value=>patch({active:value})}/></div></div><div className="form-section"><h3><span>3</span>증빙·평가 매핑</h3><div className="form-grid"><label className="full-span">필수 증빙 예시<input value={form.evidenceExample} onChange={event=>patch({evidenceExample:event.target.value})} placeholder="예: 월별 전기요금 고지서, 계량기 검침표"/></label><label className="full-span">연결 평가·공시기준<input value={form.frameworks.join(", ")} onChange={event=>patch({frameworks:event.target.value.split(",").map(value=>value.trim()).filter(Boolean)})} placeholder="예: CDP C6, EcoVadis 환경성과, GRI 305-1"/></label></div></div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>정의서 저장</button></div></div></form></Overlay>;
+}
+
+const standardMetricIndicators:Omit<Indicator,"id">[]=[
+  {code:"E-WATER-01",name:"용수 취수량",category:"환경",unit:"m³",cycle:"월",aggregation:"합계",owner:"환경 담당부서",reviewer:"기획실",progress:0,status:"미작성",definition:"사업장 운영 과정에서 취수하거나 공급받은 전체 용수량",boundary:"전 사업장 상수도·지하수·공업용수 사용량",formula:"수도요금 고지서 및 계량기 사용량 합계",dataSource:"수도요금 고지서, 계량기 검침표",evidenceExample:"월별 수도요금 고지서 또는 계량기 검침표",frameworks:["GRI 303-3","ESRS E3-4"],dueDate:"",active:true},
+  {code:"E-AIR-01",name:"대기오염물질 배출량",category:"환경",unit:"kg",cycle:"월",aggregation:"합계",owner:"환경 담당부서",reviewer:"기획실",progress:0,status:"미작성",definition:"대기배출시설에서 배출된 대기오염물질의 총량",boundary:"허가·신고 대상 대기배출시설",formula:"물질별 측정농도 × 배출가스 유량 × 가동시간",dataSource:"자가측정 성적서, 대기배출시설 운영기록",evidenceExample:"자가측정 성적서 및 산정 내역",frameworks:["GRI 305-7","ESRS E2-4"],dueDate:"",active:true},
+  {code:"E-WASTE-01",name:"폐기물 발생량",category:"환경",unit:"ton",cycle:"월",aggregation:"합계",owner:"환경 담당부서",reviewer:"기획실",progress:0,status:"미작성",definition:"사업장에서 발생한 일반·지정폐기물의 총량",boundary:"전 사업장 위탁·자가처리 폐기물",formula:"올바로시스템 및 인계서상의 발생량 합계",dataSource:"올바로시스템, 폐기물 인계서",evidenceExample:"폐기물 인계서 또는 올바로 실적",frameworks:["GRI 306-3","ESRS E5-5"],dueDate:"",active:true},
+  {code:"E-WASTE-02",name:"폐기물 재활용량",category:"환경",unit:"ton",cycle:"월",aggregation:"합계",owner:"환경 담당부서",reviewer:"기획실",progress:0,status:"미작성",definition:"발생 폐기물 중 재활용 방식으로 처리된 양",boundary:"전 사업장 재활용 위탁·자가처리 폐기물",formula:"재활용 처리 폐기물 인계량 합계",dataSource:"폐기물 인계서, 처리업체 실적",evidenceExample:"재활용 처리 확인서 또는 인계서",frameworks:["GRI 306-4","ESRS E5-5"],dueDate:"",active:true},
+  {code:"S-TRAIN-01",name:"임직원 총 교육시간",category:"사회",unit:"시간",cycle:"분기",aggregation:"합계",owner:"인사 담당부서",reviewer:"기획실",progress:0,status:"미작성",definition:"보고기간 중 임직원이 이수한 사내·외 교육시간의 합계",boundary:"재직 임직원 대상 직무·법정·리더십 교육",formula:"교육별 이수시간 × 이수인원 합계",dataSource:"교육관리대장, 교육 수료내역",evidenceExample:"교육 결과보고서 및 참석자 명단",frameworks:["GRI 404-1","ESRS S1-13"],dueDate:"",active:true},
+  {code:"S-TRAIN-02",name:"임직원 1인당 교육시간",category:"사회",unit:"시간/인",cycle:"연",aggregation:"평균",owner:"인사 담당부서",reviewer:"기획실",progress:0,status:"미작성",definition:"임직원 1인당 평균 교육시간",boundary:"보고기간 평균 재직 임직원",formula:"임직원 총 교육시간 ÷ 평균 임직원 수",dataSource:"교육관리대장, 인사시스템",evidenceExample:"교육시간 집계표 및 평균인원 산정표",frameworks:["GRI 404-1","ESRS S1-13"],dueDate:"",active:true},
+];
+
+function MetricCollection({requests,submissions,indicators,organizations,canWrite,canManage,currentOrganization,defaultOwner,defaultDepartment,onRequestsChange,onSubmissionsChange,onIndicatorsChange,addAudit,showToast}:{requests:MetricRequest[];submissions:MetricSubmission[];indicators:Indicator[];organizations:Record<string,string[]>;canWrite:boolean;canManage:boolean;currentOrganization:string;defaultOwner:string;defaultDepartment:string;onRequestsChange:(items:MetricRequest[])=>void;onSubmissionsChange:(items:MetricSubmission[])=>void;onIndicatorsChange:(items:Indicator[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(message:string)=>void}){
+  const [selectedId,setSelectedId]=useState(requests.find(request=>request.status==="수집중")?.id??requests[0]?.id??"");
+  const [requestModal,setRequestModal]=useState<MetricRequest|null|"new">(null);
+  const [submissionModal,setSubmissionModal]=useState<{request:MetricRequest;indicator:Indicator;company:string;submission?:MetricSubmission}|null>(null);
+  const selected=requests.find(request=>request.id===selectedId)??requests[0];
+  const visibleCompanies=selected?.companies.filter(company=>canManage||!currentOrganization||company===currentOrganization)??[];
+  const expectedRows=selected?visibleCompanies.flatMap(company=>selected.indicatorIds.map(indicatorId=>({company,indicator:indicators.find(indicator=>indicator.id===indicatorId),submission:submissions.find(item=>item.requestId===selected.id&&item.company===company&&item.indicatorId===indicatorId)}))).filter(row=>row.indicator):[];
+  const selectedSubmissions=selected?submissions.filter(item=>item.requestId===selected.id):[];
+  const completion=expectedRows.length?Math.round(expectedRows.filter(row=>row.submission?.status==="확정").length/expectedRows.length*100):0;
+  const pending=selectedSubmissions.filter(item=>item.status==="검토대기").length;
+  const activeCount=requests.filter(request=>request.status==="수집중"||request.status==="검토중").length;
+  const addTemplates=()=>{const existing=new Set(indicators.map(indicator=>indicator.code));const additions=standardMetricIndicators.filter(template=>!existing.has(template.code)).map((template,index)=>({...template,id:Date.now()+index}));if(!additions.length){showToast("표준 ESG 정량지표가 이미 등록되어 있습니다.");return;}onIndicatorsChange([...indicators,...additions]);addAudit("ESG 표준지표 등록",`${additions.length}개 지표`,"교육시간·용수·대기·폐기물 표준 정의서를 등록했습니다.");showToast(`${additions.length}개의 표준 ESG 정량지표를 추가했습니다.`);};
+  const saveRequest=(request:MetricRequest)=>{const exists=requests.some(item=>item.id===request.id);const saved={...request,id:request.id||`MR-${Date.now()}`,updatedAt:nowLabel()};onRequestsChange(exists?requests.map(item=>item.id===saved.id?saved:item):[saved,...requests]);setSelectedId(saved.id);setRequestModal(null);addAudit(exists?"정량데이터 요청 수정":"정량데이터 요청 생성",saved.title,`${saved.companies.length}개 법인에 ${saved.indicatorIds.length}개 지표 수집을 요청했습니다.`);showToast(exists?"수집 요청을 수정했습니다.":"새 정량데이터 수집 요청을 개설했습니다.");};
+  const deleteRequest=(request:MetricRequest)=>{if(!window.confirm("이 수집 요청과 연결된 입력자료를 모두 삭제하시겠습니까?"))return;onRequestsChange(requests.filter(item=>item.id!==request.id));onSubmissionsChange(submissions.filter(item=>item.requestId!==request.id));setRequestModal(null);setSelectedId("");addAudit("정량데이터 요청 삭제",request.title,"요청과 연결 입력자료를 삭제했습니다.");showToast("수집 요청을 삭제했습니다.");};
+  const saveSubmission=(submission:MetricSubmission)=>{const exists=submissions.some(item=>item.id===submission.id);const saved={...submission,id:exists?submission.id:Date.now(),updatedAt:nowLabel()};onSubmissionsChange(exists?submissions.map(item=>item.id===saved.id?saved:item):[saved,...submissions]);setSubmissionModal(null);addAudit(exists?"정량데이터 수정":"정량데이터 입력",`${saved.company} · ${indicators.find(item=>item.id===saved.indicatorId)?.name??"ESG 지표"}`,`${saved.period} 값 ${formatNumber(saved.value,2)} ${saved.unit}을 ${saved.status} 상태로 저장했습니다.`);showToast(saved.status==="검토대기"?"기획실 검토 대기로 제출했습니다.":"정량데이터를 저장했습니다.");};
+  const changeStatus=(submission:MetricSubmission,status:MetricSubmissionStatus)=>{let rejectionReason=submission.rejectionReason;if(status==="반려"){const reason=window.prompt("보완이 필요한 내용을 입력해 주세요.",submission.rejectionReason??"");if(reason===null)return;rejectionReason=reason.trim();}onSubmissionsChange(submissions.map(item=>item.id===submission.id?{...item,status,rejectionReason,updatedAt:nowLabel()}:item));addAudit(status==="확정"?"정량데이터 확정":"정량데이터 보완 요청",`${submission.company} · ${indicators.find(item=>item.id===submission.indicatorId)?.name??"ESG 지표"}`,status==="확정"?"제출값과 증빙을 검토해 확정했습니다.":`보완 요청: ${rejectionReason}`);showToast(status==="확정"?"정량데이터를 확정했습니다.":"입력 담당자에게 보완을 요청했습니다.");};
+  const exportRows=()=>{if(!selected)return;downloadCsv("SEMS_ESG_metric_collection.csv",["수집요청","법인","사업장","기간","지표코드","지표명","값","단위","담당자","부서","증빙","상태","설명"],expectedRows.map(row=>[selected.title,row.company,row.submission?.site??"",row.submission?.period??selected.periodTo,row.indicator?.code??"",row.indicator?.name??"",row.submission?.value??"",row.indicator?.unit??"",row.submission?.owner??"",row.submission?.department??"",row.submission?.evidence??"",row.submission?.status??"미입력",row.submission?.description??""]));showToast("현재 수집 현황을 내려받았습니다.");};
+  return <><PageHeader eyebrow="ESG METRIC COLLECTION" title="ESG 정량데이터 수집" description="온실가스 외 교육시간·용수·대기오염·폐기물 등 ESG 정량지표를 법인별로 요청하고, 값과 증빙을 검토·확정합니다.">{canManage&&<button className="secondary-button" onClick={addTemplates}><Icon name="list" size={17}/>표준 지표 추가</button>}{selected&&<button className="secondary-button" onClick={exportRows}><Icon name="download" size={17}/>수집현황 내보내기</button>}{canManage&&<button className="primary-button" onClick={()=>setRequestModal("new")} disabled={!indicators.length}><Icon name="plus" size={17}/>수집 요청</button>}</PageHeader>
+    <section className="metric-summary"><SummaryTile label="진행 중 요청" value={activeCount} suffix="건" icon="calendar" tone="green"/><SummaryTile label="등록 지표" value={indicators.filter(item=>item.active).length} suffix="개" icon="list"/><SummaryTile label="검토 대기" value={submissions.filter(item=>item.status==="검토대기").length} suffix="건" icon="clock" tone={submissions.some(item=>item.status==="검토대기")?"amber":"green"}/><SummaryTile label="확정 데이터" value={submissions.filter(item=>item.status==="확정").length} suffix="건" icon="check" tone="green"/></section>
+    {!requests.length?<section className="card metric-empty"><div className="empty-state"><Icon name="database"/><strong>개설된 ESG 정량데이터 수집 요청이 없습니다.</strong><p>{indicators.length?"대상 법인과 지표, 기간을 선택해 첫 수집 요청을 개설해 주세요.":"먼저 표준 지표를 추가하거나 ESG 지표 관리에서 필요한 지표를 등록해 주세요."}</p>{canManage&&<div className="empty-actions"><button className="secondary-button" onClick={addTemplates}><Icon name="list" size={16}/>표준 지표 추가</button><button className="primary-button" onClick={()=>setRequestModal("new")} disabled={!indicators.length}><Icon name="plus" size={16}/>수집 요청 만들기</button></div>}</div></section>:<section className="metric-workspace"><aside className="card metric-request-list"><CardHeader title="수집 요청" subtitle="진행할 요청을 선택하세요." action={canManage?<button className="outline-small" onClick={()=>setRequestModal("new")}><Icon name="plus" size={14}/>추가</button>:undefined}/><div>{requests.map(request=>{const count=submissions.filter(item=>item.requestId===request.id&&item.status==="확정").length;const total=request.companies.length*request.indicatorIds.length;return <button key={request.id} className={request.id===selected?.id?"active":""} onClick={()=>setSelectedId(request.id)}><div><StatusBadge status={request.status}/><small>{request.dueDate} 마감</small></div><strong>{request.title}</strong><p>{request.companies.length}개 법인 · {request.indicatorIds.length}개 지표</p><span><i style={{width:`${total?Math.round(count/total*100):0}%`}}/></span></button>})}</div></aside>{selected&&<article className="card metric-detail"><div className="metric-detail-head"><div><div className="report-meta-line"><StatusBadge status={selected.status}/><em>{selected.periodFrom} ~ {selected.periodTo}</em><em>{selected.dueDate} 마감</em></div><h2>{selected.title}</h2><p>{selected.description||"별도 요청사항이 없습니다."}</p></div>{canManage&&<button className="secondary-button compact" onClick={()=>setRequestModal(selected)}><Icon name="settings" size={15}/>요청 설정</button>}</div><div className="metric-progress-panel"><div><span>확정 진행률</span><strong>{completion}%</strong><div><i style={{width:`${completion}%`}}/></div></div><div><span>대상 법인</span><strong>{selected.companies.length}<small>개</small></strong></div><div><span>요청 지표</span><strong>{selected.indicatorIds.length}<small>개</small></strong></div><div><span>검토 대기</span><strong>{pending}<small>건</small></strong></div></div><div className="table-scroll"><table className="data-table metric-collection-table"><thead><tr><th>법인</th><th>요청 지표</th><th>입력 기간</th><th className="align-right">제출값</th><th>담당 / 증빙</th><th>상태</th><th>작업</th></tr></thead><tbody>{expectedRows.map(row=>{const submission=row.submission;const indicator=row.indicator!;const canEdit=canWrite&&(canManage||!currentOrganization||row.company===currentOrganization)&&selected.status==="수집중"&&submission?.status!=="확정";return <tr key={`${row.company}-${indicator.id}`}><td><strong>{row.company}</strong><span>{submission?.site||"사업장 미입력"}</span></td><td><strong>{indicator.name}</strong><span>{indicator.code} · {indicator.cycle} 수집</span></td><td>{submission?.period||selected.periodTo}</td><td className="align-right">{submission?<><strong>{formatNumber(submission.value,2)}</strong><span>{submission.unit}</span></>:<span className="missing-value">미입력</span>}</td><td><strong>{submission?.owner||"담당자 미지정"}</strong><span>{submission?.evidence||"증빙 미연결"}</span></td><td>{submission?<><StatusBadge status={submission.status}/>{submission.rejectionReason&&<span className="rejection-inline">{submission.rejectionReason}</span>}</>:<StatusBadge status="미입력"/>}</td><td><div className="metric-row-actions">{canEdit&&<button className="outline-small" onClick={()=>setSubmissionModal({request:selected,indicator,company:row.company,submission})}><Icon name={submission?"edit":"plus"} size={14}/>{submission?"수정":"입력"}</button>}{canManage&&submission?.status==="검토대기"&&<><button className="approve-small" onClick={()=>changeStatus(submission,"확정")}>확정</button><button className="reject-small" onClick={()=>changeStatus(submission,"반려")}>반려</button></>}</div></td></tr>})}</tbody></table>{!expectedRows.length&&<div className="empty-state"><Icon name="list"/><strong>현재 계정에 배정된 수집 항목이 없습니다.</strong></div>}</div></article>}</section>}
+    {requestModal&&<MetricRequestForm item={requestModal==="new"?null:requestModal} indicators={indicators.filter(item=>item.active)} organizationNames={Object.keys(organizations)} onClose={()=>setRequestModal(null)} onSave={saveRequest} onDelete={requestModal==="new"?undefined:()=>deleteRequest(requestModal)}/>}
+    {submissionModal&&<MetricSubmissionForm context={submissionModal} organizations={organizations} defaultOwner={defaultOwner} defaultDepartment={defaultDepartment} canManage={canManage} onClose={()=>setSubmissionModal(null)} onSave={saveSubmission}/>}
+  </>;
+}
+
+function MetricRequestForm({item,indicators,organizationNames,onClose,onSave,onDelete}:{item:MetricRequest|null;indicators:Indicator[];organizationNames:string[];onClose:()=>void;onSave:(request:MetricRequest)=>void;onDelete?:()=>void}){
+  const month=new Date().toISOString().slice(0,7);const due=new Date().toISOString().slice(0,10);
+  const [form,setForm]=useState<MetricRequest>(item??{id:"",title:"",periodFrom:month,periodTo:month,dueDate:due,companies:[...organizationNames],indicatorIds:[],description:"",status:"예정",updatedAt:"방금 전"});
+  const [error,setError]=useState("");
+  const patch=(value:Partial<MetricRequest>)=>{setForm(current=>({...current,...value}));setError("");};
+  const toggleCompany=(company:string)=>patch({companies:form.companies.includes(company)?form.companies.filter(item=>item!==company):[...form.companies,company]});
+  const toggleIndicator=(id:number)=>patch({indicatorIds:form.indicatorIds.includes(id)?form.indicatorIds.filter(item=>item!==id):[...form.indicatorIds,id]});
+  const submit=(event:FormEvent)=>{event.preventDefault();if(!form.companies.length){setError("대상 법인을 한 곳 이상 선택해 주세요.");return;}if(!form.indicatorIds.length){setError("요청할 ESG 지표를 한 개 이상 선택해 주세요.");return;}if(form.periodFrom>form.periodTo){setError("수집 시작기간은 종료기간보다 늦을 수 없습니다.");return;}onSave(form);};
+  return <Overlay title={item?"ESG 정량데이터 요청 수정":"새 ESG 정량데이터 수집 요청"} eyebrow="METRIC REQUEST" description="온실가스 외 정량지표의 대상 법인, 기간과 제출 마감일을 지정합니다." onClose={onClose}><form onSubmit={submit}><div className="form-section"><h3><span>1</span>요청 기본정보</h3><div className="form-grid"><label className="full-span">요청명<input value={form.title} onChange={event=>patch({title:event.target.value})} placeholder="예: 2026년 상반기 환경·사회 정량데이터 수집" required/></label><label>시작기간<input type="month" value={form.periodFrom} onChange={event=>patch({periodFrom:event.target.value})} required/></label><label>종료기간<input type="month" value={form.periodTo} onChange={event=>patch({periodTo:event.target.value})} required/></label><label>제출 마감일<input type="date" value={form.dueDate} onChange={event=>patch({dueDate:event.target.value})} required/></label><label>진행 상태<select value={form.status} onChange={event=>patch({status:event.target.value as MetricRequestStatus})}><option>예정</option><option>수집중</option><option>검토중</option><option>마감</option></select></label><label className="full-span textarea-label">요청 안내<textarea value={form.description} onChange={event=>patch({description:event.target.value})} placeholder="산정기준, 포함 범위, 증빙자료 기준 등을 적어 주세요."/></label></div></div><div className="form-section"><h3><span>2</span>대상 법인</h3><div className="selection-grid">{organizationNames.map(company=><label key={company} className={form.companies.includes(company)?"selected":""}><input type="checkbox" checked={form.companies.includes(company)} onChange={()=>toggleCompany(company)}/><span><strong>{company}</strong><small>정량데이터 입력 요청</small></span></label>)}</div></div><div className="form-section"><h3><span>3</span>요청 지표</h3><div className="metric-picker">{indicators.map(indicator=><label key={indicator.id} className={form.indicatorIds.includes(indicator.id)?"selected":""}><input type="checkbox" checked={form.indicatorIds.includes(indicator.id)} onChange={()=>toggleIndicator(indicator.id)}/><span className={`pillar-tag ${indicator.category==="환경"?"e":indicator.category==="사회"?"s":"g"}`}>{indicator.category}</span><div><strong>{indicator.name}</strong><small>{indicator.code} · {indicator.unit} · {indicator.cycle}</small></div></label>)}</div>{!indicators.length&&<div className="empty-state compact"><strong>사용 중인 ESG 지표가 없습니다.</strong></div>}{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>요청 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>요청 저장</button></div></div></form></Overlay>;
+}
+
+function MetricSubmissionForm({context,organizations,defaultOwner,defaultDepartment,canManage,onClose,onSave}:{context:{request:MetricRequest;indicator:Indicator;company:string;submission?:MetricSubmission};organizations:Record<string,string[]>;defaultOwner:string;defaultDepartment:string;canManage:boolean;onClose:()=>void;onSave:(submission:MetricSubmission)=>void}){
+  const existing=context.submission;
+  const [form,setForm]=useState<MetricSubmission>(existing??{id:0,requestId:context.request.id,indicatorId:context.indicator.id,company:context.company,site:organizations[context.company]?.[0]??"",period:context.request.periodTo,value:0,unit:context.indicator.unit,owner:defaultOwner,department:defaultDepartment,evidence:"",description:"",status:"작성중",updatedAt:"방금 전"});
+  const [error,setError]=useState("");
+  const patch=(value:Partial<MetricSubmission>)=>{setForm(current=>({...current,...value}));setError("");};
+  const submit=(event:FormEvent)=>{event.preventDefault();if(form.value<0){setError("제출값은 0 이상이어야 합니다.");return;}if(form.period<context.request.periodFrom||form.period>context.request.periodTo){setError("입력 기간이 요청 대상 기간을 벗어났습니다.");return;}onSave(form);};
+  return <Overlay title={`${context.indicator.name} 입력`} eyebrow="METRIC SUBMISSION" description={`${context.company} · ${context.request.periodFrom}~${context.request.periodTo} 요청값과 근거자료를 입력합니다.`} onClose={onClose}><form onSubmit={submit}><div className="form-section"><h3><span>1</span>지표와 대상</h3><div className="form-grid"><label>법인<input value={form.company} readOnly/></label><label>사업장<select value={form.site} onChange={event=>patch({site:event.target.value})}>{(organizations[form.company]??[]).map(site=><option key={site}>{site}</option>)}</select></label><label>지표명<input value={context.indicator.name} readOnly/></label><label>입력 기간<input type="month" min={context.request.periodFrom} max={context.request.periodTo} value={form.period} onChange={event=>patch({period:event.target.value})} required/></label></div></div><div className="form-section"><h3><span>2</span>값 입력</h3><div className="form-grid"><label>제출값<div className="input-unit"><input type="number" min="0" step="any" value={form.value||""} onChange={event=>patch({value:Number(event.target.value)})} required/><span>{form.unit}</span></div></label><label>저장 상태<select value={form.status} onChange={event=>patch({status:event.target.value as MetricSubmissionStatus})}><option>작성중</option><option>검토대기</option>{canManage&&<option>확정</option>}</select></label><label>담당자<input value={form.owner} onChange={event=>patch({owner:event.target.value})} required/></label><label>담당 부서<input value={form.department} onChange={event=>patch({department:event.target.value})} required/></label><label className="full-span textarea-label">산정 기준·변동 사유<textarea value={form.description} onChange={event=>patch({description:event.target.value})} placeholder={context.indicator.formula||"산정 기준과 특이사항을 적어 주세요."}/></label></div></div><div className="form-section"><h3><span>3</span>증빙자료</h3><label className="upload-zone"><input type="file" accept=".pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png" onChange={event=>{const file=event.target.files?.[0];if(!file)return;if(file.size>20*1024*1024){setError("증빙파일은 20MB 이하만 선택할 수 있습니다.");event.target.value="";return;}patch({evidence:file.name})}}/><span className="upload-icon"><Icon name="upload"/></span>{form.evidence?<><strong>{form.evidence}</strong><small>원본 파일명과 연결정보가 저장됩니다.</small></>:<><strong>증빙자료를 선택하세요.</strong><small>{context.indicator.evidenceExample||"PDF, XLSX, CSV, JPG, PNG · 최대 20MB"}</small></>}</label>{form.rejectionReason&&<div className="rejection-note"><Icon name="alert" size={16}/><div><strong>이전 보완 요청</strong><p>{form.rejectionReason}</p></div></div>}{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div><div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>{form.status==="검토대기"?"검토 제출":"저장"}</button></div></form></Overlay>;
+}
+
+function createReportPages():ReportPage[]{
+  const block=(type:ReportBlock["type"],title:string,body="",dataSource?:ReportDataSource):ReportBlock=>({id:`RB-${crypto.randomUUID()}`,type,title,body,dataSource});
+  return [
+    {id:`RP-${crypto.randomUUID()}`,title:"CEO 메시지",section:"보고서 개요",blocks:[block("text","CEO Message","지속가능한 성장을 위한 세원그룹의 방향과 이해관계자에게 전하는 메시지를 작성해 주세요.")]},
+    {id:`RP-${crypto.randomUUID()}`,title:"보고서 개요",section:"보고서 개요",blocks:[block("text","About This Report","보고 범위, 보고 기간, 작성 기준, 문의처와 외부 검증 여부를 작성해 주세요.")]},
+    {id:`RP-${crypto.randomUUID()}`,title:"환경 Environmental",section:"환경",blocks:[block("text","환경경영","환경경영 추진체계와 주요 정책, 목표 및 활동을 작성해 주세요."),block("data","온실가스 배출 실적","확정된 인벤토리 데이터를 자동으로 표시합니다.","온실가스 배출량")]},
+    {id:`RP-${crypto.randomUUID()}`,title:"사회 Social",section:"사회",blocks:[block("text","사람과 공급망","임직원, 안전보건, 인권, 공급망 및 지역사회 관련 주요 활동과 성과를 작성해 주세요.")]},
+    {id:`RP-${crypto.randomUUID()}`,title:"지배구조 Governance",section:"지배구조",blocks:[block("text","책임 있는 경영","이사회, 윤리·준법, 리스크 관리체계와 주요 성과를 작성해 주세요.")]},
+    {id:`RP-${crypto.randomUUID()}`,title:"ESG Data Factbook",section:"부록",blocks:[block("data","온실가스 배출량","확정된 연도별 Scope 데이터를 표시합니다.","온실가스 배출량"),block("data","감축목표","등록된 중장기 감축목표를 표시합니다.","감축목표"),block("data","ESG 지표 현황","지표 정의서의 수집·승인 상태를 표시합니다.","ESG 지표")]},
+    {id:`RP-${crypto.randomUUID()}`,title:"공시기준 Index",section:"부록",blocks:[block("callout","GRI·ESRS·KSSB Index","ESG 지표 정의서에 연결한 공시기준이 자동으로 대응표에 표시됩니다.")]},
+  ];
+}
+
+function createReportDraft(title:string,year:number,organization:string,reportingPeriod:string,frameworks:string[]):SustainabilityReport{
+  return {id:`SR-${Date.now()}`,title,year,organization,reportingPeriod,status:"초안",primaryColor:"#1f6f5c",accentColor:"#dfeee8",fontFamily:"Noto Sans KR",frameworks,pages:createReportPages(),updatedAt:nowLabel()};
+}
+
+function ReportBuilder({reports,records,targets,indicators,organizationNames,canManage,onChange,addAudit,showToast}:{reports:SustainabilityReport[];records:ActivityRecord[];targets:ReductionTarget[];indicators:Indicator[];organizationNames:string[];canManage:boolean;onChange:(items:SustainabilityReport[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(message:string)=>void}){
+  const [selectedId,setSelectedId]=useState(reports[0]?.id??"");
+  const [pageId,setPageId]=useState(reports[0]?.pages[0]?.id??"");
+  const [tab,setTab]=useState<"edit"|"preview"|"standards">("edit");
+  const [editing,setEditing]=useState<SustainabilityReport|null|"new">(null);
+  const selected=reports.find(report=>report.id===selectedId)??reports[0];
+  const selectedPage=selected?.pages.find(page=>page.id===pageId)??selected?.pages[0];
+  const commit=(next:SustainabilityReport)=>onChange(reports.map(report=>report.id===next.id?{...next,updatedAt:nowLabel()}:report));
+  const patchPage=(patch:Partial<ReportPage>)=>{if(!selected||!selectedPage||!canManage)return;commit({...selected,pages:selected.pages.map(page=>page.id===selectedPage.id?{...page,...patch}:page)});};
+  const patchBlock=(blockId:string,patch:Partial<ReportBlock>)=>{if(!selectedPage)return;patchPage({blocks:selectedPage.blocks.map(block=>block.id===blockId?{...block,...patch}:block)});};
+  const moveBlock=(blockId:string,direction:-1|1)=>{if(!selectedPage)return;const index=selectedPage.blocks.findIndex(block=>block.id===blockId);const target=index+direction;if(index<0||target<0||target>=selectedPage.blocks.length)return;const blocks=[...selectedPage.blocks];[blocks[index],blocks[target]]=[blocks[target],blocks[index]];patchPage({blocks});};
+  const addBlock=(type:ReportBlock["type"])=>{if(!selectedPage)return;const defaults:{title:string;body:string;dataSource?:ReportDataSource}=type==="data"?{title:"데이터 표",body:"SEMS의 확정 데이터를 자동으로 표시합니다.",dataSource:"온실가스 배출량"}:type==="divider"?{title:"구분선",body:""}:type==="callout"?{title:"핵심 메시지",body:"강조할 내용을 작성해 주세요."}:{title:"본문 제목",body:"내용을 작성해 주세요."};const block:ReportBlock={id:`RB-${crypto.randomUUID()}`,type,...defaults};patchPage({blocks:[...selectedPage.blocks,block]});addAudit("보고서 콘텐츠 추가",selectedPage.title,`${defaults.title} 블록을 추가했습니다.`);showToast("새 콘텐츠 블록을 추가했습니다.");};
+  const removeBlock=(block:ReportBlock)=>{if(!selectedPage||!window.confirm("이 콘텐츠 블록을 삭제하시겠습니까?"))return;patchPage({blocks:selectedPage.blocks.filter(item=>item.id!==block.id)});addAudit("보고서 콘텐츠 삭제",selectedPage.title,`${block.title||"콘텐츠"} 블록을 삭제했습니다.`);};
+  const addPage=()=>{if(!selected||!canManage)return;const page:ReportPage={id:`RP-${crypto.randomUUID()}`,title:"새 페이지",section:"보고서 개요",blocks:[]};commit({...selected,pages:[...selected.pages,page]});setPageId(page.id);setTab("edit");addAudit("보고서 페이지 추가",selected.title,"새 페이지를 추가했습니다.");};
+  const removePage=()=>{if(!selected||!selectedPage||selected.pages.length===1||!window.confirm("이 페이지와 안의 콘텐츠를 삭제하시겠습니까?"))return;const pages=selected.pages.filter(page=>page.id!==selectedPage.id);commit({...selected,pages});setPageId(pages[0]?.id??"");addAudit("보고서 페이지 삭제",selected.title,`${selectedPage.title} 페이지를 삭제했습니다.`);};
+  const movePage=(direction:-1|1)=>{if(!selected||!selectedPage)return;const index=selected.pages.findIndex(page=>page.id===selectedPage.id);const target=index+direction;if(index<0||target<0||target>=selected.pages.length)return;const pages=[...selected.pages];[pages[index],pages[target]]=[pages[target],pages[index]];commit({...selected,pages});};
+  const saveReport=(report:SustainabilityReport)=>{const exists=reports.some(item=>item.id===report.id);const next={...report,updatedAt:nowLabel(),publishedAt:report.status==="발행완료"?(report.publishedAt??nowLabel()):undefined};onChange(exists?reports.map(item=>item.id===next.id?next:item):[...reports,next]);setSelectedId(next.id);setPageId(next.pages[0]?.id??"");setEditing(null);addAudit(exists?"보고서 기본정보 수정":"보고서 생성",next.title,`${next.year}년 지속가능경영보고서 ${exists?"설정을 수정":"초안을 생성"}했습니다.`);showToast(exists?"보고서 기본정보를 저장했습니다.":"보고서 초안을 생성했습니다.");};
+  const deleteReport=()=>{if(!selected||!window.confirm("이 보고서와 작성한 모든 원고를 삭제하시겠습니까?"))return;onChange(reports.filter(report=>report.id!==selected.id));setSelectedId("");setPageId("");addAudit("보고서 삭제",selected.title,"지속가능경영보고서 원고를 삭제했습니다.");showToast("보고서를 삭제했습니다.");};
+  const saveCheckpoint=()=>{if(!selected)return;commit(selected);addAudit("보고서 원고 저장",selected.title,`${selected.pages.length}개 페이지의 최신 원고를 저장했습니다.`);showToast("보고서 원고를 서버에 저장했습니다.");};
+  const pageCompletion=selected?selected.pages.filter(page=>page.blocks.some(block=>block.type==="data"||block.type==="divider"||block.body.trim())).length:0;
+  const completion=selected?.pages.length?Math.round(pageCompletion/selected.pages.length*100):0;
+  return <><PageHeader eyebrow="SUSTAINABILITY REPORT" title="지속가능경영보고서 작성" description="SEMS에서 확정한 데이터와 ESG 지표를 원고에 연결하고, 목차별 본문 작성부터 공시기준 대응·미리보기·PDF 출력까지 관리합니다.">{selected&&<button className="secondary-button" onClick={()=>window.print()}><Icon name="download" size={17}/>PDF 인쇄</button>}{canManage&&<button className="primary-button" onClick={()=>setEditing("new")}><Icon name="plus" size={17}/>새 보고서</button>}</PageHeader>
+    {!reports.length?<section className="card report-empty"><div className="empty-state"><Icon name="edit"/><strong>작성 중인 지속가능경영보고서가 없습니다.</strong><p>기본 목차가 포함된 새 보고서를 만든 뒤 SEMS 데이터를 연결해 주세요.</p>{canManage&&<button className="primary-button" onClick={()=>setEditing("new")}><Icon name="plus" size={16}/>첫 보고서 만들기</button>}</div></section>:selected&&<><section className="report-summary card"><div className="report-summary-main" style={{borderColor:selected.primaryColor}}><span style={{background:selected.primaryColor}}>{selected.year}</span><div><div className="report-meta-line"><StatusBadge status={selected.status}/><em>{selected.organization}</em><em>{selected.reportingPeriod}</em></div><h2>{selected.title}</h2><p>{selected.frameworks.join(" · ")} 기준 · 최근 저장 {selected.updatedAt}</p></div></div><div className="report-summary-stat"><span>목차</span><strong>{selected.pages.length}<small>개</small></strong></div><div className="report-summary-stat"><span>원고 진행률</span><strong>{completion}<small>%</small></strong><div className="report-progress"><i style={{width:`${completion}%`,background:selected.primaryColor}}/></div></div><div className="report-summary-actions">{canManage&&<button className="secondary-button compact" onClick={()=>setEditing(selected)}><Icon name="settings" size={15}/>기본정보</button>}{canManage&&<button className="primary-button compact" onClick={saveCheckpoint}><Icon name="check" size={15}/>원고 저장</button>}</div></section>
+      <section className="report-tabs"><button className={tab==="edit"?"active":""} onClick={()=>setTab("edit")}><Icon name="edit" size={16}/>목차·본문 작성</button><button className={tab==="standards"?"active":""} onClick={()=>setTab("standards")}><Icon name="list" size={16}/>공시기준 대응표</button><button className={tab==="preview"?"active":""} onClick={()=>setTab("preview")}><Icon name="file" size={16}/>보고서 미리보기</button></section>
+      {tab==="edit"&&<section className="report-workbench"><aside className="card report-outline"><CardHeader title="보고서 목차" subtitle="페이지를 선택해 콘텐츠를 작성합니다." action={canManage?<button className="outline-small" onClick={addPage}><Icon name="plus" size={14}/>페이지</button>:undefined}/><div className="report-select-wrap"><select value={selected.id} onChange={event=>{const next=reports.find(report=>report.id===event.target.value);setSelectedId(event.target.value);setPageId(next?.pages[0]?.id??"")}}>{reports.map(report=><option value={report.id} key={report.id}>{report.year} · {report.title}</option>)}</select></div><div className="report-page-list">{selected.pages.map((page,index)=><button key={page.id} className={page.id===selectedPage?.id?"active":""} onClick={()=>setPageId(page.id)}><span>{String(index+1).padStart(2,"0")}</span><div><strong>{page.title}</strong><small>{page.section} · {page.blocks.length}개 블록</small></div><Icon name="chevron" size={14}/></button>)}</div></aside>
+        <article className="card report-editor">{selectedPage?<><div className="report-editor-head"><div><span>{selectedPage.section}</span><h2>{selectedPage.title}</h2><p>텍스트와 SEMS 연결 데이터 표를 순서대로 구성합니다. 변경 내용은 서버에 자동 저장됩니다.</p></div>{canManage&&<div className="row-actions"><button className="outline-small" onClick={()=>movePage(-1)} aria-label="페이지 위로 이동">↑</button><button className="outline-small" onClick={()=>movePage(1)} aria-label="페이지 아래로 이동">↓</button><button className="danger-button compact" onClick={removePage} disabled={selected.pages.length===1}><Icon name="trash" size={14}/>페이지 삭제</button></div>}</div>{canManage&&<div className="report-page-settings"><label>페이지 제목<input value={selectedPage.title} onChange={event=>patchPage({title:event.target.value})}/></label><label>구분<select value={selectedPage.section} onChange={event=>patchPage({section:event.target.value as ReportSection})}><option>보고서 개요</option><option>환경</option><option>사회</option><option>지배구조</option><option>부록</option></select></label></div>}
+          <div className="report-block-list">{selectedPage.blocks.map((block,index)=><div className={`report-block-editor ${block.type}`} key={block.id}><div className="report-block-toolbar"><span>{index+1}</span><strong>{block.type==="text"?"본문":block.type==="data"?"연결 데이터 표":block.type==="callout"?"강조 상자":"구분선"}</strong>{canManage&&<div><button onClick={()=>moveBlock(block.id,-1)} aria-label="블록 위로 이동">↑</button><button onClick={()=>moveBlock(block.id,1)} aria-label="블록 아래로 이동">↓</button><button onClick={()=>removeBlock(block)} aria-label="블록 삭제"><Icon name="trash" size={13}/></button></div>}</div>{block.type==="divider"?<hr style={{borderColor:selected.primaryColor}}/>:<>{canManage?<label>제목<input value={block.title} onChange={event=>patchBlock(block.id,{title:event.target.value})}/></label>:<h3>{block.title}</h3>}{block.type==="data"&&canManage&&<label>연결할 SEMS 데이터<select value={block.dataSource} onChange={event=>patchBlock(block.id,{dataSource:event.target.value as ReportDataSource})}><option>온실가스 배출량</option><option>감축목표</option><option>ESG 지표</option></select></label>}{canManage?<label>설명·본문<textarea value={block.body} onChange={event=>patchBlock(block.id,{body:event.target.value})} rows={block.type==="text"?7:3}/></label>:<p>{block.body}</p>}{block.type==="data"&&<ReportDataTable source={block.dataSource??"온실가스 배출량"} report={selected} records={records} targets={targets} indicators={indicators}/>}</>}</div>)}{!selectedPage.blocks.length&&<div className="empty-state compact"><Icon name="edit"/><strong>이 페이지에 콘텐츠가 없습니다.</strong><p>아래에서 본문이나 데이터 표를 추가해 주세요.</p></div>}</div>{canManage&&<div className="report-add-block"><span>콘텐츠 추가</span><button onClick={()=>addBlock("text")}><Icon name="edit" size={15}/>본문</button><button onClick={()=>addBlock("data")}><Icon name="database" size={15}/>SEMS 데이터 표</button><button onClick={()=>addBlock("callout")}><Icon name="alert" size={15}/>강조 상자</button><button onClick={()=>addBlock("divider")}>― 구분선</button></div>}</>:<div className="empty-state"><strong>목차를 선택해 주세요.</strong></div>}</article></section>}
+      {tab==="standards"&&<ReportStandards report={selected} indicators={indicators}/>}
+      {tab==="preview"&&<ReportPreview report={selected} records={records} targets={targets} indicators={indicators}/>}
+    </>}
+    {editing&&<ReportSettingsModal item={editing==="new"?null:editing} organizationNames={organizationNames} onClose={()=>setEditing(null)} onSave={saveReport} onDelete={editing==="new"?undefined:deleteReport}/>}
+  </>;
+}
+
+function ReportSettingsModal({item,organizationNames,onClose,onSave,onDelete}:{item:SustainabilityReport|null;organizationNames:string[];onClose:()=>void;onSave:(report:SustainabilityReport)=>void;onDelete?:()=>void}){
+  const currentYear=new Date().getFullYear();
+  const [form,setForm]=useState<SustainabilityReport>(item??createReportDraft(`${currentYear} 세원그룹 지속가능경영보고서`,currentYear,"세원그룹",`${currentYear-1}.01.01 ~ ${currentYear-1}.12.31`,["GRI","ESRS","KSSB"]));
+  const patch=(value:Partial<SustainabilityReport>)=>setForm(current=>({...current,...value}));
+  const toggleFramework=(framework:string)=>patch({frameworks:form.frameworks.includes(framework)?form.frameworks.filter(item=>item!==framework):[...form.frameworks,framework]});
+  return <Overlay title={item?"보고서 기본정보·디자인":"새 지속가능경영보고서"} eyebrow="REPORT SETTINGS" description="보고서의 기본정보, 적용 공시기준과 미리보기 디자인을 설정합니다." onClose={onClose}><form onSubmit={event=>{event.preventDefault();onSave(form)}}><div className="form-section"><h3><span>1</span>보고서 기본정보</h3><div className="form-grid"><label className="full-span">보고서명<input value={form.title} onChange={event=>patch({title:event.target.value})} required/></label><label>발행연도<input type="number" min="2020" max="2100" value={form.year} onChange={event=>patch({year:Number(event.target.value)})} required/></label><label>작성 대상<select value={form.organization} onChange={event=>patch({organization:event.target.value})}><option>세원그룹</option>{organizationNames.map(name=><option key={name}>{name}</option>)}</select></label><label className="full-span">보고기간<input value={form.reportingPeriod} onChange={event=>patch({reportingPeriod:event.target.value})} placeholder="예: 2025.01.01 ~ 2025.12.31" required/></label><label>작성 상태<select value={form.status} onChange={event=>patch({status:event.target.value as ReportStatus})}><option>초안</option><option>검토중</option><option>발행완료</option></select></label><label>본문 글꼴<select value={form.fontFamily} onChange={event=>patch({fontFamily:event.target.value as SustainabilityReport["fontFamily"]})}><option>Noto Sans KR</option><option>Pretendard</option><option value="serif">명조 계열</option></select></label></div></div><div className="form-section"><h3><span>2</span>디자인 설정</h3><div className="form-grid"><label>주요 색상<div className="color-field"><input type="color" value={form.primaryColor} onChange={event=>patch({primaryColor:event.target.value})}/><input value={form.primaryColor} onChange={event=>patch({primaryColor:event.target.value})}/></div></label><label>보조 색상<div className="color-field"><input type="color" value={form.accentColor} onChange={event=>patch({accentColor:event.target.value})}/><input value={form.accentColor} onChange={event=>patch({accentColor:event.target.value})}/></div></label></div></div><div className="form-section"><h3><span>3</span>적용 공시기준</h3><div className="check-group"><div>{["GRI","ESRS","KSSB"].map(framework=><label key={framework}><input type="checkbox" checked={form.frameworks.includes(framework)} onChange={()=>toggleFramework(framework)}/>{framework}</label>)}</div></div><p className="form-section-guide">ESG 지표 정의서에 등록한 공시기준 코드가 보고서 대응표에 자동 연결됩니다.</p></div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>보고서 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>저장</button></div></div></form></Overlay>;
+}
+
+function reportYears(report:SustainabilityReport){return [report.year-2,report.year-1,report.year]}
+function ReportDataTable({source,report,records,targets,indicators}:{source:ReportDataSource;report:SustainabilityReport;records:ActivityRecord[];targets:ReductionTarget[];indicators:Indicator[]}){
+  const scopedRecords=records.filter(record=>record.status==="확정"&&record.active!==false&&(report.organization==="세원그룹"||record.company===report.organization));
+  const [metricRows,setMetricRows]=useState<MetricSubmission[]>([]);
+  useEffect(()=>{const load=()=>{try{setMetricRows(JSON.parse(localStorage.getItem("sems2-metric-submissions")??"[]"));}catch{setMetricRows([]);}};load();window.addEventListener(WORKSPACE_CHANGE_EVENT,load);return()=>window.removeEventListener(WORKSPACE_CHANGE_EVENT,load);},[]);
+  if(source==="온실가스 배출량"){const years=reportYears(report);const scopes:(Scope|"합계")[]=["Scope 1","Scope 2","Scope 3","합계"];const hasData=scopedRecords.some(record=>years.includes(Number(record.period.slice(0,4))));return <div className="report-linked-table"><div className="report-data-origin"><Icon name="database" size={14}/>SEMS 확정 인벤토리 자동 연결</div><div className="table-scroll"><table><thead><tr><th>구분</th>{years.map(year=><th key={year}>{year}</th>)}</tr></thead><tbody>{scopes.map(scope=><tr key={scope}><td><strong>{scope}</strong></td>{years.map(year=>{const value=scopedRecords.filter(record=>Number(record.period.slice(0,4))===year&&(scope==="합계"||record.scope===scope)).reduce((sum,record)=>sum+record.emissions,0);return <td key={year}>{hasData?formatNumber(value,1):"-"}</td>})}</tr>)}</tbody></table></div>{!hasData&&<p className="report-data-empty">보고 연도에 연결할 확정 인벤토리 실적이 없습니다.</p>}<small>단위: tCO₂e · 확정 상태 자료 기준</small></div>}
+  if(source==="감축목표"){const rows=targets.filter(target=>target.company==="그룹 전체"||report.organization==="세원그룹"||target.company===report.organization);return <div className="report-linked-table"><div className="report-data-origin"><Icon name="target" size={14}/>감축목표·이행계획 자동 연결</div><div className="table-scroll"><table><thead><tr><th>목표명</th><th>대상</th><th>기준연도</th><th>목표연도</th><th>감축률</th><th>상태</th></tr></thead><tbody>{rows.map(target=><tr key={target.id}><td><strong>{target.name}</strong></td><td>{target.scopes.join("·")}</td><td>{target.baselineYear}</td><td>{target.targetYear}</td><td>{formatNumber(target.reductionRate,1)}%</td><td>{target.status}</td></tr>)}</tbody></table></div>{!rows.length&&<p className="report-data-empty">연결할 감축목표가 없습니다.</p>}</div>}
+  const rows=indicators.filter(indicator=>indicator.active);
+  const years=reportYears(report);
+  const confirmed=metricRows.filter(row=>row.status==="확정"&&(report.organization==="세원그룹"||row.company===report.organization));
+  const annualValue=(indicator:Indicator,year:number)=>{const values=confirmed.filter(row=>row.indicatorId===indicator.id&&Number(row.period.slice(0,4))===year).sort((a,b)=>a.period.localeCompare(b.period)).map(row=>row.value);if(!values.length)return null;if(indicator.aggregation==="평균")return values.reduce((sum,value)=>sum+value,0)/values.length;if(indicator.aggregation==="최종값")return values.at(-1)??0;return values.reduce((sum,value)=>sum+value,0);};
+  return <div className="report-linked-table"><div className="report-data-origin"><Icon name="list" size={14}/>확정 ESG 정량데이터 자동 연결</div><div className="table-scroll"><table><thead><tr><th>지표</th><th>단위</th>{years.map(year=><th key={year}>{year}</th>)}</tr></thead><tbody>{rows.map(indicator=><tr key={indicator.id}><td><strong>{indicator.name}</strong><br/><small>{indicator.code} · {indicator.aggregation??"합계"}</small></td><td>{indicator.unit}</td>{years.map(year=>{const value=annualValue(indicator,year);return <td key={year}>{value===null?"-":formatNumber(value,2)}</td>})}</tr>)}</tbody></table></div>{!confirmed.length&&<p className="report-data-empty">연결할 확정 ESG 정량데이터가 없습니다.</p>}<small>확정 상태 자료 · 지표별 연간 집계방식 기준</small></div>;
+}
+
+function ReportStandards({report,indicators}:{report:SustainabilityReport;indicators:Indicator[]}){
+  const rows=indicators.flatMap(indicator=>indicator.frameworks.map(framework=>({indicator,framework,standard:framework.toUpperCase().includes("GRI")?"GRI":framework.toUpperCase().includes("ESRS")?"ESRS":framework.toUpperCase().includes("KSSB")?"KSSB":"기타"}))).filter(row=>report.frameworks.includes(row.standard));
+  const pageFor=(indicator:Indicator)=>report.pages.find(page=>page.section===indicator.category)?.title??report.pages.find(page=>page.section==="부록")?.title??"미연결";
+  return <section className="card report-standards"><CardHeader title="공시기준 대응표" subtitle="ESG 지표 정의서에 연결한 기준 코드를 보고서 목차와 자동 대조합니다."/><div className="standard-summary">{report.frameworks.map(framework=><div key={framework}><span>{framework}</span><strong>{rows.filter(row=>row.standard===framework).length}<small>개 항목</small></strong></div>)}</div><div className="table-scroll"><table className="data-table"><thead><tr><th>기준</th><th>공시 항목</th><th>SEMS 지표</th><th>담당</th><th>보고서 위치</th><th>상태</th></tr></thead><tbody>{rows.map((row,index)=><tr key={`${row.indicator.id}-${row.framework}-${index}`}><td><strong className="standard-code">{row.standard}</strong></td><td>{row.framework}</td><td><strong>{row.indicator.code}</strong><span>{row.indicator.name}</span></td><td>{row.indicator.owner||"미지정"}</td><td>{pageFor(row.indicator)}</td><td><StatusBadge status={row.indicator.status}/></td></tr>)}</tbody></table>{!rows.length&&<div className="empty-state"><Icon name="list"/><strong>연결된 공시기준 항목이 없습니다.</strong><p>ESG 지표 정의서의 ‘연결 평가·공시기준’에 GRI, ESRS 또는 KSSB 코드를 등록해 주세요.</p></div>}</div></section>;
+}
+
+function ReportPreview({report,records,targets,indicators}:{report:SustainabilityReport;records:ActivityRecord[];targets:ReductionTarget[];indicators:Indicator[]}){
+  const style={"--report-primary":report.primaryColor,"--report-accent":report.accentColor,fontFamily:report.fontFamily} as CSSProperties;
+  return <section className="report-preview-shell"><div className="report-preview-note"><Icon name="file" size={16}/><span>미리보기는 작성된 전체 페이지를 순서대로 표시합니다. 상단의 PDF 인쇄 버튼으로 저장할 수 있습니다.</span></div><article className="report-preview-document" style={style}><section className="report-cover"><div className="report-cover-mark">SEWON</div><div><span>{report.year} SUSTAINABILITY REPORT</span><h1>{report.title}</h1><p>{report.organization}</p></div><footer><span>{report.reportingPeriod}</span><span>{report.frameworks.join(" · ")}</span></footer></section>{report.pages.map((page,index)=><section className="report-preview-page" key={page.id}><header><span>{page.section.toUpperCase()}</span><em>{String(index+1).padStart(2,"0")}</em></header><h2>{page.title}</h2>{page.blocks.map(block=><ReportBlockPreview key={block.id} block={block} report={report} records={records} targets={targets} indicators={indicators}/>)}</section>)}</article></section>;
+}
+
+function ReportBlockPreview({block,report,records,targets,indicators}:{block:ReportBlock;report:SustainabilityReport;records:ActivityRecord[];targets:ReductionTarget[];indicators:Indicator[]}){
+  if(block.type==="divider")return <hr className="report-preview-divider"/>;
+  if(block.type==="data")return <section className="report-preview-block data"><h3>{block.title}</h3>{block.body&&<p>{block.body}</p>}<ReportDataTable source={block.dataSource??"온실가스 배출량"} report={report} records={records} targets={targets} indicators={indicators}/></section>;
+  return <section className={`report-preview-block ${block.type}`}><h3>{block.title}</h3><p>{block.body}</p></section>;
 }
 
 function AuditLog({ items, showToast }: { items: AuditEvent[]; showToast: (m: string) => void }) {

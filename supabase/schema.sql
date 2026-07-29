@@ -339,4 +339,43 @@ create policy "owners and managers delete evidence files"
 on storage.objects for delete to authenticated
 using (bucket_id = 'sems2-evidence' and (owner_id = auth.uid()::text or public.current_profile_role() in ('admin', 'manager')));
 
+grant usage on schema public to authenticated, service_role;
+
+grant select, insert, update, delete on table
+  public.organizations,
+  public.sites,
+  public.profiles,
+  public.collection_periods,
+  public.period_organizations,
+  public.period_scopes,
+  public.emission_factors,
+  public.activity_records,
+  public.reduction_targets,
+  public.reduction_target_scopes,
+  public.reduction_plans,
+  public.audit_events,
+  public.app_settings,
+  public.workspace_states
+to authenticated;
+
+grant all privileges on table
+  public.organizations,
+  public.sites,
+  public.profiles,
+  public.collection_periods,
+  public.period_organizations,
+  public.period_scopes,
+  public.emission_factors,
+  public.activity_records,
+  public.reduction_targets,
+  public.reduction_target_scopes,
+  public.reduction_plans,
+  public.audit_events,
+  public.app_settings,
+  public.workspace_states
+to service_role;
+
+grant execute on function public.current_profile_role() to authenticated, service_role;
+grant execute on function public.current_profile_organization() to authenticated, service_role;
+
 -- No sample operational data is inserted intentionally.

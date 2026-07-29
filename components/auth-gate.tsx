@@ -19,6 +19,9 @@ type WorkspacePayload = {
   factors: unknown[];
   evidence: unknown[];
   indicators: unknown[];
+  metricRequests: unknown[];
+  metricSubmissions: unknown[];
+  reports: unknown[];
   targets: unknown[];
   plans: unknown[];
   audit: unknown[];
@@ -33,6 +36,9 @@ const EMPTY_WORKSPACE: WorkspacePayload = {
   factors: [],
   evidence: [],
   indicators: [],
+  metricRequests: [],
+  metricSubmissions: [],
+  reports: [],
   targets: [],
   plans: [],
   audit: [],
@@ -57,6 +63,9 @@ const STORAGE_KEYS: Record<keyof WorkspacePayload, string> = {
   factors: "sems2-factors",
   evidence: "sems2-evidence",
   indicators: "sems2-indicators",
+  metricRequests: "sems2-metric-requests",
+  metricSubmissions: "sems2-metric-submissions",
+  reports: "sems2-reports",
   targets: "sems2-targets",
   plans: "sems2-reduction-plans",
   audit: "sems2-audit",
@@ -73,6 +82,9 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
     factors: Array.isArray(payload.factors) ? payload.factors : [],
     evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
     indicators: Array.isArray(payload.indicators) ? payload.indicators : [],
+    metricRequests: Array.isArray(payload.metricRequests) ? payload.metricRequests : [],
+    metricSubmissions: Array.isArray(payload.metricSubmissions) ? payload.metricSubmissions : [],
+    reports: Array.isArray(payload.reports) ? payload.reports : [],
     targets: Array.isArray(payload.targets) ? payload.targets : [],
     plans: Array.isArray(payload.plans) ? payload.plans : [],
     audit: Array.isArray(payload.audit) ? payload.audit : [],

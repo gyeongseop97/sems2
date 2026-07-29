@@ -44,6 +44,10 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /배출 전망/);
   assert.match(page, /"내부 감축" \| "외부 감축" \| "비정량 과제"/);
   assert.match(page, /연간 절감비/);
+  assert.match(page, /ESG 정량데이터 수집/);
+  assert.match(page, /지속가능경영보고서 작성/);
+  assert.match(page, /교육시간·용수·대기오염·폐기물/);
+  assert.match(page, /확정 ESG 정량데이터 자동 연결/);
   assert.match(page, /"예정" \| "수집중" \| "검토중" \| "마감" \| "잠금"/);
   assert.match(page, /title="변경 이력"/);
   assert.match(styles, /body \{ font-size: 16px; line-height: 1\.58; \}/);

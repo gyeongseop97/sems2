@@ -12,6 +12,9 @@ type WorkspacePayload = {
   factors: unknown[];
   evidence: unknown[];
   indicators: unknown[];
+  metricRequests: unknown[];
+  metricSubmissions: unknown[];
+  reports: unknown[];
   targets: unknown[];
   plans: unknown[];
   audit: unknown[];
@@ -39,6 +42,9 @@ const EMPTY_WORKSPACE: WorkspacePayload = {
   factors: [],
   evidence: [],
   indicators: [],
+  metricRequests: [],
+  metricSubmissions: [],
+  reports: [],
   targets: [],
   plans: [],
   audit: [],
@@ -65,6 +71,9 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
     factors: Array.isArray(payload.factors) ? payload.factors : [],
     evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
     indicators: Array.isArray(payload.indicators) ? payload.indicators : [],
+    metricRequests: Array.isArray(payload.metricRequests) ? payload.metricRequests : [],
+    metricSubmissions: Array.isArray(payload.metricSubmissions) ? payload.metricSubmissions : [],
+    reports: Array.isArray(payload.reports) ? payload.reports : [],
     targets: Array.isArray(payload.targets) ? payload.targets : [],
     plans: Array.isArray(payload.plans) ? payload.plans : [],
     audit: Array.isArray(payload.audit) ? payload.audit : [],
@@ -105,6 +114,7 @@ function mergeWorkspace(globalValue: unknown, organizationValues: unknown[]) {
   return {
     ...global,
     records: mergeRows("records", [global.records, ...organizations.map((item) => item.records)]),
+    metricSubmissions: mergeRows("metricSubmissions", [global.metricSubmissions, ...organizations.map((item) => item.metricSubmissions)]),
     evidence: mergeRows("evidence", [global.evidence, ...organizations.map((item) => item.evidence)]),
     targets: mergeRows("targets", [global.targets, ...organizations.map((item) => item.targets)]),
     plans: mergeRows("plans", [global.plans, ...organizations.map((item) => item.plans)]),
@@ -220,6 +230,7 @@ export async function PATCH(request: NextRequest) {
       const organizationPayload = {
         ...EMPTY_WORKSPACE,
         records: payload.records.filter((value) => (value as { company?: string }).company === organizationName),
+        metricSubmissions: payload.metricSubmissions.filter((value) => (value as { company?: string }).company === organizationName),
         evidence: payload.evidence.filter((value) => {
           const organization = (value as { organization?: string; company?: string }).organization
             ?? (value as { company?: string }).company;
@@ -248,6 +259,7 @@ export async function PATCH(request: NextRequest) {
     const globalPayload: WorkspacePayload = {
       ...payload,
       records: [],
+      metricSubmissions: [],
       evidence: [],
       targets: payload.targets.filter((value) => (value as { company?: string }).company === "그룹 전체"),
       plans: [],
@@ -266,6 +278,7 @@ export async function PATCH(request: NextRequest) {
       const organizationPayload: WorkspacePayload = {
         ...EMPTY_WORKSPACE,
         records: payload.records.filter((value) => (value as { company?: string }).company === name),
+        metricSubmissions: payload.metricSubmissions.filter((value) => (value as { company?: string }).company === name),
         evidence: payload.evidence.filter((value) => {
           const assigned = (value as { organization?: string; company?: string }).organization
             ?? (value as { company?: string }).company;
