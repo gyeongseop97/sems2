@@ -1,1 +1,2 @@
 Temporary pull request trigger for validating the synchronized SEMS2 Sites source with both the Sites build and Vercel-equivalent Next.js build.
+Validation rerun after fixing workflow staging.
