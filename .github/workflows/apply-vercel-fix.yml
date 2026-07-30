@@ -16,7 +16,7 @@ jobs:
         with:
           ref: diagnostics/sites-latest-validation
           fetch-depth: 0
-      - name: Restore active components and comment boundary
+      - name: Restore active components and comment boundaries
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -46,13 +46,14 @@ jobs:
               historical_evidence = historical.index(active_evidence_marker, historical_close)
               historical_indicator = historical.index(indicator_marker, historical_evidence)
               restored = historical[historical_evidence:historical_indicator].rstrip()
-
               text = text[:indicator_pos] + "*/\n\n" + restored + "\n\n" + text[indicator_pos:]
-              indicator_pos = text.index(indicator_marker, legacy_start)
-              trailing_close = text.find("\n*/", indicator_pos)
-              if trailing_close < 0:
-                  raise SystemExit("trailing legacy comment close not found")
-              text = text[:trailing_close] + text[trailing_close + 3:]
+
+          settings_legacy = text.index("\n/*\nfunction OrganizationSettings(", text.index("function Settings("))
+          active_settings_marker = "function OrganizationSettings({organizations}:{organizations:Record<string,string[]>;onChange:"
+          active_settings = text.index(active_settings_marker, settings_legacy)
+          settings_segment = text[settings_legacy:active_settings]
+          if "\n*/\n\n" not in settings_segment:
+              text = text[:active_settings] + "*/\n\n" + text[active_settings:]
 
           path.write_text(text, encoding="utf-8")
           PY
@@ -63,6 +64,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No source repair needed."
           else
-            git commit -m "Restore active SEMS2 components for Vercel build"
+            git commit -m "Close legacy settings comment for Vercel build"
             git push origin HEAD:diagnostics/sites-latest-validation
           fi
