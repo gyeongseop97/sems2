@@ -20,7 +20,7 @@ import {
 import { DEFAULT_EMISSION_FACTORS, mergeDefaultEmissionFactors, SCOPE3_CATEGORIES, SCOPE_GUIDANCE } from "@/lib/emission-factor-library";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "periods" | "collection" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
+type View = "dashboard" | "collection" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
 type Scope = "Scope 1" | "Scope 2" | "Scope 3";
 type RecordStatus = "작성중" | "검토대기" | "반려" | "확정";
 type EvidenceStatus = "검토중" | "승인" | "보완 요청" | "만료";
@@ -701,7 +701,6 @@ const NAV_GROUPS:{label:string;items:View[]}[]=[
 
 const VIEW_PATHS: Record<View, string> = {
   dashboard: "/",
-  periods: "/collection-periods",
   collection: "/data-collection",
   review: "/review",
   quality: "/data-quality",
@@ -721,6 +720,7 @@ function viewFromPathname(pathname: string) {
   const normalized = pathname
     .replace(/^\/sems2(?=\/|$)/, "")
     .replace(/\/+$/, "") || "/";
+  if (normalized === "/collection-periods") return "metric-collection";
   return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";
 }
 
@@ -1139,7 +1139,6 @@ export default function Home() {
       </header>
       <main className="content">
         {activeView === "dashboard" && <Dashboard records={records} periods={periods} targets={targets} plans={plans} organizationNames={organizationNames} onNavigate={navigate} onNew={() => openForm()} />}
-        {activeView === "periods" && <Periods periods={periods} records={records} organizationNames={organizationNames} onChange={items=>{if(!canManage){showToast("수집기간 관리는 관리자 권한이 필요합니다.");return;}setPeriods(items);}} addAudit={addAudit} showToast={showToast} />}
         {activeView === "collection" && <Collection records={records} periods={periods} criteria={criteria} organizationNames={organizationNames} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />}
         {activeView === "review" && <Review records={records} periods={periods} criteria={criteria} onChange={updateRecords} showToast={showToast} />}
         {activeView === "quality" && <DataQuality records={records} periods={periods} criteria={criteria} onNavigate={navigate} />}
@@ -1806,7 +1805,6 @@ function MetricCollection({requests,submissions,indicators,organizations,canWrit
   const completion=expectedRows.length?Math.round(expectedRows.filter(row=>row.submission?.status==="확정").length/expectedRows.length*100):0;
   const pending=selectedSubmissions.filter(item=>item.status==="검토대기").length;
   const activeCount=requests.filter(request=>request.status==="수집중"||request.status==="검토중").length;
-  useEffect(()=>{if(selected&&!selectedId)setSelectedId(selected.id);},[selected,selectedId]);
   const saveRequest=(request:MetricRequest)=>{
     const exists=requests.some(item=>item.id===request.id);
     const saved={...request,id:exists?request.id:`MR-${Date.now()}`,updatedAt:nowLabel()};
