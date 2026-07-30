@@ -7,7 +7,7 @@ import { useSemsAuth, WORKSPACE_CHANGE_EVENT } from "@/components/auth-context";
 import { DEFAULT_EMISSION_FACTORS, mergeDefaultEmissionFactors, SCOPE3_CATEGORIES, SCOPE_GUIDANCE } from "@/lib/emission-factor-library";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "periods" | "collection" | "review" | "quality" | "inventory" | "targets" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
+type View = "dashboard" | "periods" | "collection" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
 type Scope = "Scope 1" | "Scope 2" | "Scope 3";
 type RecordStatus = "작성중" | "검토대기" | "반려" | "확정";
 type EvidenceStatus = "검토중" | "승인" | "보완 요청" | "만료";
@@ -94,6 +94,11 @@ type EmissionFactor = {
   reference?: string;
   referenceUrl?: string;
   notes?: string;
+  indicatorKind?: "열량계수" | "지구온난화지수" | "산화계수" | "배출계수";
+  detailCategory?: string;
+  country?: string;
+  validFrom?: string;
+  validTo?: string;
 };
 
 type EvidenceItem = {
@@ -295,6 +300,9 @@ type CalculationFormula = {
   description:string;
   active:boolean;
   updatedAt:string;
+  categoryCode?:string;
+  resultLabel?:string;
+  variableKeys?:string[];
 };
 type ActivityMaster = {
   id:string;
@@ -308,9 +316,12 @@ type ActivityMaster = {
   description:string;
   active:boolean;
   updatedAt:string;
+  materialType?:"연료"|"온실가스"|"기타";
+  casNumber?:string;
 };
 type AssetUnit = {
   id:string;
+  code?:string;
   company:string;
   site:string;
   name:string;
@@ -322,6 +333,16 @@ type AssetUnit = {
   description:string;
   active:boolean;
   updatedAt:string;
+  classification?:"건물"|"자동차 및 이동수단"|"설비 및 기계"|"기타";
+  activityType?:"고정연소"|"이동연소"|"공정배출"|"탈루배출"|"전력"|"재생에너지"|"기타배출";
+  country?:string;
+  latitude?:string;
+  longitude?:string;
+  department?:string;
+  owner?:string;
+  position?:string;
+  phone?:string;
+  email?:string;
 };
 type Scope3FieldDefinition = {
   id:string;
@@ -378,6 +399,104 @@ type ComplianceRegulation = {
   updatedAt:string;
 };
 
+type SupplierMaster = {
+  id:string;
+  code:string;
+  name:string;
+  region:"국내"|"해외";
+  category:"제조사-일반"|"제조사-특수"|"운송사"|"물류사"|"원자재사"|"기타";
+  tier:"tier1"|"tier2"|"tier3"|"tier4"|"해당없음";
+  country:string;
+  email:string;
+  owner:string;
+  active:boolean;
+  updatedAt:string;
+};
+
+type ProductMaterialMaster = {
+  id:string;
+  code:string;
+  name:string;
+  type:"완제품"|"반제품"|"원자재"|"반자재"|"상품";
+  supplierId:string;
+  unit:string;
+  description:string;
+  active:boolean;
+  updatedAt:string;
+};
+
+type TransportRoute = {
+  id:string;
+  code:string;
+  name:string;
+  mode:"도로"|"철도"|"해상"|"항공";
+  vehicle:string;
+  origin:string;
+  destination:string;
+  distance:number;
+  distanceUnit:"km"|"mile";
+  calculationType:"자동계산"|"직접입력";
+  description:string;
+  active:boolean;
+  updatedAt:string;
+};
+
+type DisclosureMapping = {
+  id:string;
+  indicatorCode:string;
+  standardId:string;
+  standardItemCode:string;
+  regulationIds:string[];
+  evidenceRequired:boolean;
+  owner:string;
+  status:"미연결"|"연결완료"|"검토 필요";
+  updatedAt:string;
+};
+
+type Scope3RequestStatus = "대기중"|"진행중"|"입력완료"|"검토완료"|"재요청"|"요청취소";
+type Scope3DataRequest = {
+  id:string;
+  title:string;
+  year:number;
+  categoryCode:string;
+  organizationScope:string[];
+  formulaId:string;
+  dueDate:string;
+  targetType:"협력사"|"업무담당자";
+  targetIds:string[];
+  reminder:boolean;
+  cbam:boolean;
+  status:Scope3RequestStatus;
+  submittedCount:number;
+  reviewedCount:number;
+  updatedAt:string;
+};
+
+type DiagnosticTemplate = {
+  id:string;
+  title:string;
+  description:string;
+  totalScore:number;
+  gradeScheme:"5단계"|"7단계"|"사용자 지정";
+  questionCount:number;
+  active:boolean;
+  updatedAt:string;
+};
+
+type SupplyChainAssessment = {
+  id:string;
+  title:string;
+  year:number;
+  periodFrom:string;
+  periodTo:string;
+  templateId:string;
+  supplierIds:string[];
+  reminder:boolean;
+  completedCount:number;
+  status:"예정"|"진행"|"완료";
+  updatedAt:string;
+};
+
 const DEFAULT_CALCULATION_FORMULAS:CalculationFormula[]=[
   {id:"FORM-S1-FUEL",code:"S1-FUEL",name:"연료 연소 배출량",scope:"Scope 1",expression:"활동량 × 순발열량 × 배출계수 × 산화율",activityUnit:"연료 사용단위",outputUnit:"tCO₂e",factorId:"",description:"고정연소·이동연소 연료 사용량 산정",active:true,updatedAt:"기본 제공"},
   {id:"FORM-S1-REF",code:"S1-REFRIGERANT",name:"냉매 누출 배출량",scope:"Scope 1",expression:"냉매 충전·보충량 × 냉매별 GWP",activityUnit:"kg",outputUnit:"tCO₂e",factorId:"",description:"냉동·공조설비 냉매 보충량 기준",active:true,updatedAt:"기본 제공"},
@@ -394,6 +513,108 @@ const DEFAULT_ACTIVITY_MASTERS:ActivityMaster[]=[
   {id:"ACT-REFRIGERANT",code:"REFRIGERANT",name:"냉매",group:"공정·탈루",scope:"Scope 1",unit:"kg",description:"설비별 냉매 종류와 충전·보충량",active:true,updatedAt:"기본 제공"},
 ];
 
+type Scope3FieldBlueprint={fieldKey:string;nameKr:string;nameEn:string;inputType:Scope3FieldDefinition["inputType"];dataType:Scope3FieldDefinition["dataType"];unitGroup:string;required:boolean};
+const DEFAULT_SCOPE3_FIELD_BLUEPRINTS:Record<string,Scope3FieldBlueprint[]>={
+  "Cat.1":[
+    {fieldKey:"supplier_name",nameKr:"공급사명",nameEn:"Supplier",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"material_code",nameKr:"자재코드",nameEn:"Material code",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"material_name",nameKr:"자재·서비스명",nameEn:"Material or service",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"quantity",nameKr:"구매수량",nameEn:"Purchased quantity",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ACTIVITY",required:true},
+    {fieldKey:"unit_code",nameKr:"수량단위",nameEn:"Unit",inputType:"UNIT_CODE",dataType:"STRING",unitGroup:"ACTIVITY",required:true},
+    {fieldKey:"purchase_amount",nameKr:"구매금액",nameEn:"Purchase amount",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"CURRENCY",required:false},
+    {fieldKey:"supplier_factor",nameKr:"공급자 배출계수",nameEn:"Supplier emission factor",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"EMISSION_FACTOR",required:false},
+  ],
+  "Cat.2":[
+    {fieldKey:"capital_asset",nameKr:"자본재명",nameEn:"Capital good",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"supplier_name",nameKr:"공급사명",nameEn:"Supplier",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"quantity",nameKr:"도입수량",nameEn:"Quantity",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ACTIVITY",required:true},
+    {fieldKey:"purchase_amount",nameKr:"취득금액",nameEn:"Acquisition cost",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"CURRENCY",required:true},
+    {fieldKey:"factor_value",nameKr:"자본재 배출계수",nameEn:"Emission factor",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"EMISSION_FACTOR",required:false},
+  ],
+  "Cat.3":[
+    {fieldKey:"energy_type",nameKr:"연료·에너지 유형",nameEn:"Energy type",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"activity_value",nameKr:"사용량",nameEn:"Consumption",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ENERGY",required:true},
+    {fieldKey:"unit_code",nameKr:"단위",nameEn:"Unit",inputType:"UNIT_CODE",dataType:"STRING",unitGroup:"ENERGY",required:true},
+    {fieldKey:"wtt_factor",nameKr:"상류 배출계수",nameEn:"Well-to-tank factor",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"EMISSION_FACTOR",required:false},
+  ],
+  "Cat.4":[
+    {fieldKey:"origin",nameKr:"출발지",nameEn:"Origin",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"destination",nameKr:"도착지",nameEn:"Destination",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"transport_mode",nameKr:"운송방식",nameEn:"Transport mode",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"cargo_weight",nameKr:"화물중량",nameEn:"Cargo weight",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"MASS",required:true},
+    {fieldKey:"distance",nameKr:"이동거리",nameEn:"Distance",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"DISTANCE",required:true},
+  ],
+  "Cat.5":[
+    {fieldKey:"waste_type",nameKr:"폐기물 종류",nameEn:"Waste type",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"treatment_method",nameKr:"처리방법",nameEn:"Treatment method",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"waste_amount",nameKr:"폐기물 발생량",nameEn:"Waste amount",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"MASS",required:true},
+    {fieldKey:"contractor",nameKr:"위탁처리업체",nameEn:"Waste contractor",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:false},
+  ],
+  "Cat.6":[
+    {fieldKey:"trip_purpose",nameKr:"출장 목적",nameEn:"Trip purpose",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"transport_mode",nameKr:"이동수단",nameEn:"Transport mode",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"distance",nameKr:"왕복 이동거리",nameEn:"Round-trip distance",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"DISTANCE",required:true},
+    {fieldKey:"travelers",nameKr:"출장인원",nameEn:"Travelers",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"PEOPLE",required:true},
+    {fieldKey:"nights",nameKr:"숙박일수",nameEn:"Hotel nights",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"DAYS",required:false},
+  ],
+  "Cat.7":[
+    {fieldKey:"commute_mode",nameKr:"통근수단",nameEn:"Commute mode",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"employees",nameKr:"대상 임직원수",nameEn:"Employees",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"PEOPLE",required:true},
+    {fieldKey:"one_way_distance",nameKr:"편도거리",nameEn:"One-way distance",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"DISTANCE",required:true},
+    {fieldKey:"work_days",nameKr:"연간 출근일수",nameEn:"Work days",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"DAYS",required:true},
+  ],
+  "Cat.8":[
+    {fieldKey:"leased_asset",nameKr:"임차자산명",nameEn:"Leased asset",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"energy_type",nameKr:"에너지 유형",nameEn:"Energy type",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"activity_value",nameKr:"사용량",nameEn:"Consumption",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ENERGY",required:true},
+    {fieldKey:"lease_share",nameKr:"당사 사용비율",nameEn:"Lease share",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"PERCENT",required:false},
+  ],
+  "Cat.9":[
+    {fieldKey:"destination",nameKr:"납품처",nameEn:"Destination",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"transport_mode",nameKr:"운송방식",nameEn:"Transport mode",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"cargo_weight",nameKr:"제품중량",nameEn:"Product weight",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"MASS",required:true},
+    {fieldKey:"distance",nameKr:"이동거리",nameEn:"Distance",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"DISTANCE",required:true},
+  ],
+  "Cat.10":[
+    {fieldKey:"product_name",nameKr:"판매제품명",nameEn:"Sold product",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"processing_type",nameKr:"가공유형",nameEn:"Processing type",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"sales_quantity",nameKr:"판매수량",nameEn:"Sales quantity",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ACTIVITY",required:true},
+    {fieldKey:"processing_energy",nameKr:"단위당 가공에너지",nameEn:"Processing energy",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ENERGY",required:true},
+  ],
+  "Cat.11":[
+    {fieldKey:"product_name",nameKr:"판매제품명",nameEn:"Sold product",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"sales_quantity",nameKr:"판매수량",nameEn:"Sales quantity",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ACTIVITY",required:true},
+    {fieldKey:"lifetime",nameKr:"제품 기대수명",nameEn:"Expected lifetime",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"YEARS",required:true},
+    {fieldKey:"use_energy",nameKr:"연간 사용에너지",nameEn:"Annual use energy",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ENERGY",required:true},
+  ],
+  "Cat.12":[
+    {fieldKey:"product_name",nameKr:"판매제품명",nameEn:"Sold product",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"product_weight",nameKr:"제품중량",nameEn:"Product weight",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"MASS",required:true},
+    {fieldKey:"material_type",nameKr:"주요 재질",nameEn:"Material type",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"disposal_method",nameKr:"폐기방법",nameEn:"Disposal method",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"recycling_rate",nameKr:"재활용률",nameEn:"Recycling rate",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"PERCENT",required:false},
+  ],
+  "Cat.13":[
+    {fieldKey:"leased_asset",nameKr:"임대자산명",nameEn:"Leased asset",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"leased_area",nameKr:"임대면적",nameEn:"Leased area",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"AREA",required:true},
+    {fieldKey:"energy_type",nameKr:"에너지 유형",nameEn:"Energy type",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"activity_value",nameKr:"사용량",nameEn:"Consumption",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ENERGY",required:true},
+  ],
+  "Cat.14":[
+    {fieldKey:"franchise_name",nameKr:"가맹점명",nameEn:"Franchise",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"store_area",nameKr:"매장면적",nameEn:"Store area",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"AREA",required:true},
+    {fieldKey:"energy_type",nameKr:"에너지 유형",nameEn:"Energy type",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"activity_value",nameKr:"사용량",nameEn:"Consumption",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"ENERGY",required:true},
+  ],
+  "Cat.15":[
+    {fieldKey:"investee",nameKr:"피투자회사·자산",nameEn:"Investee or asset",inputType:"TEXT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"asset_class",nameKr:"투자유형",nameEn:"Asset class",inputType:"SELECT",dataType:"STRING",unitGroup:"",required:true},
+    {fieldKey:"investment_amount",nameKr:"투자금액",nameEn:"Investment amount",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"CURRENCY",required:true},
+    {fieldKey:"ownership_share",nameKr:"지분율",nameEn:"Ownership share",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"PERCENT",required:true},
+    {fieldKey:"investee_emissions",nameKr:"피투자회사 배출량",nameEn:"Investee emissions",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"EMISSIONS",required:true},
+  ],
+};
+
 const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "dashboard", label: "대시보드", icon: "dashboard" },
   { id: "periods", label: "수집 기간", icon: "calendar" },
@@ -402,12 +623,21 @@ const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "quality", label: "데이터 품질", icon: "alert" },
   { id: "inventory", label: "온실가스 인벤토리", icon: "leaf" },
   { id: "targets", label: "감축목표·이행계획", icon: "target" },
+  { id: "scope3", label: "Scope 3·공급망", icon: "building" },
   { id: "evidence", label: "증빙자료", icon: "file" },
   { id: "indicators", label: "ESG 지표 관리", icon: "list" },
   { id: "metric-collection", label: "ESG 정량데이터 수집", icon: "database" },
   { id: "reports", label: "지속가능경영보고서", icon: "edit" },
   { id: "reference", label: "기준정보·규제 관리", icon: "settings" },
   { id: "audit", label: "변경 이력", icon: "clock" },
+];
+
+const NAV_GROUPS:{label:string;items:View[]}[]=[
+  {label:"현황",items:["dashboard"]},
+  {label:"데이터 수집·검증",items:["periods","collection","review","quality","evidence"]},
+  {label:"탄소·공급망",items:["inventory","targets","scope3"]},
+  {label:"ESG 지표·공시",items:["indicators","metric-collection","reports"]},
+  {label:"기준·운영관리",items:["reference","audit"]},
 ];
 
 const VIEW_PATHS: Record<View, string> = {
@@ -418,6 +648,7 @@ const VIEW_PATHS: Record<View, string> = {
   quality: "/data-quality",
   inventory: "/inventory",
   targets: "/reduction-targets",
+  scope3: "/scope3-supply-chain",
   evidence: "/evidence",
   indicators: "/indicators",
   "metric-collection": "/metric-collection",
@@ -661,6 +892,13 @@ export default function Home() {
   const [scope3Fields, setScope3Fields] = useState<Scope3FieldDefinition[]>([]);
   const [disclosureStandards, setDisclosureStandards] = useState<DisclosureStandard[]>([]);
   const [regulations, setRegulations] = useState<ComplianceRegulation[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierMaster[]>([]);
+  const [productMaterials, setProductMaterials] = useState<ProductMaterialMaster[]>([]);
+  const [transportRoutes, setTransportRoutes] = useState<TransportRoute[]>([]);
+  const [disclosureMappings, setDisclosureMappings] = useState<DisclosureMapping[]>([]);
+  const [scope3Requests, setScope3Requests] = useState<Scope3DataRequest[]>([]);
+  const [diagnosticTemplates, setDiagnosticTemplates] = useState<DiagnosticTemplate[]>([]);
+  const [supplyChainAssessments, setSupplyChainAssessments] = useState<SupplyChainAssessment[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
   const [metricRequests, setMetricRequests] = useState<MetricRequest[]>([]);
@@ -696,6 +934,13 @@ export default function Home() {
         const savedScope3Fields = localStorage.getItem("sems2-scope3-fields"); if (savedScope3Fields) setScope3Fields(JSON.parse(savedScope3Fields));
         const savedDisclosureStandards = localStorage.getItem("sems2-disclosure-standards"); if (savedDisclosureStandards) setDisclosureStandards(JSON.parse(savedDisclosureStandards));
         const savedRegulations = localStorage.getItem("sems2-regulations"); if (savedRegulations) setRegulations(JSON.parse(savedRegulations));
+        const savedSuppliers = localStorage.getItem("sems2-suppliers"); if (savedSuppliers) setSuppliers(JSON.parse(savedSuppliers));
+        const savedProductMaterials = localStorage.getItem("sems2-product-materials"); if (savedProductMaterials) setProductMaterials(JSON.parse(savedProductMaterials));
+        const savedTransportRoutes = localStorage.getItem("sems2-transport-routes"); if (savedTransportRoutes) setTransportRoutes(JSON.parse(savedTransportRoutes));
+        const savedDisclosureMappings = localStorage.getItem("sems2-disclosure-mappings"); if (savedDisclosureMappings) setDisclosureMappings(JSON.parse(savedDisclosureMappings));
+        const savedScope3Requests = localStorage.getItem("sems2-scope3-requests"); if (savedScope3Requests) setScope3Requests(JSON.parse(savedScope3Requests));
+        const savedDiagnosticTemplates = localStorage.getItem("sems2-diagnostic-templates"); if (savedDiagnosticTemplates) setDiagnosticTemplates(JSON.parse(savedDiagnosticTemplates));
+        const savedSupplyChainAssessments = localStorage.getItem("sems2-supply-chain-assessments"); if (savedSupplyChainAssessments) setSupplyChainAssessments(JSON.parse(savedSupplyChainAssessments));
         const savedEvidence = localStorage.getItem("sems2-evidence"); if (savedEvidence) setEvidence(JSON.parse(savedEvidence));
         const savedIndicators = localStorage.getItem("sems2-indicators"); if (savedIndicators) setIndicators(JSON.parse(savedIndicators));
         const savedMetricRequests = localStorage.getItem("sems2-metric-requests"); if (savedMetricRequests) setMetricRequests(JSON.parse(savedMetricRequests));
@@ -724,6 +969,13 @@ export default function Home() {
       "sems2-scope3-fields": scope3Fields,
       "sems2-disclosure-standards": disclosureStandards,
       "sems2-regulations": regulations,
+      "sems2-suppliers": suppliers,
+      "sems2-product-materials": productMaterials,
+      "sems2-transport-routes": transportRoutes,
+      "sems2-disclosure-mappings": disclosureMappings,
+      "sems2-scope3-requests": scope3Requests,
+      "sems2-diagnostic-templates": diagnosticTemplates,
+      "sems2-supply-chain-assessments": supplyChainAssessments,
       "sems2-evidence": evidence,
       "sems2-indicators": indicators,
       "sems2-metric-requests": metricRequests,
@@ -740,7 +992,7 @@ export default function Home() {
       localStorage.setItem(key, JSON.stringify(value));
     }
     window.dispatchEvent(new Event(WORKSPACE_CHANGE_EVENT));
-  }, [periods, records, factors, formulas, activityMasters, assetUnits, scope3Fields, disclosureStandards, regulations, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations, hydrated, canWrite]);
+  }, [periods, records, factors, formulas, activityMasters, assetUnits, scope3Fields, disclosureStandards, regulations, suppliers, productMaterials, transportRoutes, disclosureMappings, scope3Requests, diagnosticTemplates, supplyChainAssessments, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations, hydrated, canWrite]);
   useEffect(() => { document.body.classList.toggle("menu-open", mobileMenu || modalOpen || bulkOpen || guideOpen); return () => document.body.classList.remove("menu-open"); }, [mobileMenu, modalOpen, bulkOpen, guideOpen]);
   useEffect(() => {
     if (routeForbidden) router.replace(VIEW_PATHS.dashboard);
@@ -785,7 +1037,7 @@ export default function Home() {
     setBulkOpen(false); showToast(`${rows.length}건을 일괄 등록했습니다.`);
   };
   const exportBackup = () => {
-    const payload = { version: 6, exportedAt: new Date().toISOString(), periods, records, factors, formulas, activityMasters, assetUnits, scope3Fields, disclosureStandards, regulations, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations };
+    const payload = { version: 7, exportedAt: new Date().toISOString(), periods, records, factors, formulas, activityMasters, assetUnits, scope3Fields, disclosureStandards, regulations, suppliers, productMaterials, transportRoutes, disclosureMappings, scope3Requests, diagnosticTemplates, supplyChainAssessments, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `SEMS_backup_${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
     showToast("전체 운영 데이터를 백업했습니다.");
   };
@@ -796,6 +1048,10 @@ export default function Home() {
     if (Array.isArray(payload.formulas)) setFormulas(payload.formulas as CalculationFormula[]); if (Array.isArray(payload.activityMasters)) setActivityMasters(payload.activityMasters as ActivityMaster[]);
     if (Array.isArray(payload.assetUnits)) setAssetUnits(payload.assetUnits as AssetUnit[]); if (Array.isArray(payload.scope3Fields)) setScope3Fields(payload.scope3Fields as Scope3FieldDefinition[]);
     if (Array.isArray(payload.disclosureStandards)) setDisclosureStandards(payload.disclosureStandards as DisclosureStandard[]); if (Array.isArray(payload.regulations)) setRegulations(payload.regulations as ComplianceRegulation[]);
+    if (Array.isArray(payload.suppliers)) setSuppliers(payload.suppliers as SupplierMaster[]); if (Array.isArray(payload.productMaterials)) setProductMaterials(payload.productMaterials as ProductMaterialMaster[]);
+    if (Array.isArray(payload.transportRoutes)) setTransportRoutes(payload.transportRoutes as TransportRoute[]); if (Array.isArray(payload.disclosureMappings)) setDisclosureMappings(payload.disclosureMappings as DisclosureMapping[]);
+    if (Array.isArray(payload.scope3Requests)) setScope3Requests(payload.scope3Requests as Scope3DataRequest[]); if (Array.isArray(payload.diagnosticTemplates)) setDiagnosticTemplates(payload.diagnosticTemplates as DiagnosticTemplate[]);
+    if (Array.isArray(payload.supplyChainAssessments)) setSupplyChainAssessments(payload.supplyChainAssessments as SupplyChainAssessment[]);
     if (Array.isArray(payload.evidence)) setEvidence(payload.evidence as EvidenceItem[]); if (Array.isArray(payload.indicators)) setIndicators(payload.indicators as Indicator[]); if (Array.isArray(payload.audit)) setAudit(payload.audit as AuditEvent[]);
     if (Array.isArray(payload.metricRequests)) setMetricRequests(payload.metricRequests as MetricRequest[]); if (Array.isArray(payload.metricSubmissions)) setMetricSubmissions(payload.metricSubmissions as MetricSubmission[]);
     if (Array.isArray(payload.reports)) setReports(normalizeReportDefaults(payload.reports as SustainabilityReport[]));
@@ -813,7 +1069,7 @@ export default function Home() {
   return <div className="app-shell">
     <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
       <div className="brand"><div className="brand-mark"><span>S</span></div><div><strong>SEMS</strong><small>Sewon ESG Management</small></div><button className="icon-button sidebar-close" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기"><Icon name="close" /></button></div>
-      <nav className="main-nav" aria-label="주 메뉴"><span className="nav-group-label">OVERVIEW</span>{allowedNavItems.slice(0, 1).map(item => <NavButton key={item.id} item={item} active={activeView === item.id} onClick={() => navigate(item.id)} />)}<span className="nav-group-label">ESG MANAGEMENT</span>{allowedNavItems.slice(1).map(item => <NavButton key={item.id} item={item} active={activeView === item.id} onClick={() => navigate(item.id)} count={item.id === "review" ? records.filter(r => r.status === "검토대기").length : undefined} />)}</nav>
+      <nav className="main-nav" aria-label="주 메뉴">{NAV_GROUPS.map(group=><div className="nav-section" key={group.label}><span className="nav-group-label">{group.label}</span>{group.items.map(id=>allowedNavItems.find(item=>item.id===id)).filter((item):item is (typeof navItems)[number]=>Boolean(item)).map(item=><NavButton key={item.id} item={item} active={activeView===item.id} onClick={()=>navigate(item.id)} count={item.id==="review"?records.filter(r=>r.status==="검토대기").length:item.id==="scope3"?scope3Requests.filter(request=>["대기중","진행중","재요청"].includes(request.status)).length:undefined}/>)}</div>)}</nav>
       <div className="sidebar-bottom">{canManage&&<NavButton item={{ id:"settings", label:"시스템 설정", icon:"settings" }} active={activeView==="settings"} onClick={()=>navigate("settings")}/>}<div className="help-card"><div className="help-icon">?</div><strong>도움이 필요하신가요?</strong><p>입력 기준과 실제 사용 순서를 확인하세요.</p><button onClick={() => { setGuideOpen(true); setMobileMenu(false); }}>사용 가이드 <Icon name="arrow" size={14} /></button></div></div>
     </aside>
     {mobileMenu && <button className="mobile-overlay" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기" />}
@@ -830,11 +1086,12 @@ export default function Home() {
         {activeView === "quality" && <DataQuality records={records} periods={periods} criteria={criteria} onNavigate={navigate} />}
         {activeView === "inventory" && <Inventory records={records} targets={targets} organizationNames={organizationNames} onNavigate={navigate} showToast={showToast} />}
         {activeView === "targets" && <TargetsAndPlans targets={targets} plans={plans} records={records} organizations={organizations} onTargetsChange={items=>{if(!canManage){showToast("감축목표 관리는 관리자 권한이 필요합니다.");return;}setTargets(items);}} onPlansChange={items=>{if(!canManage){showToast("감축계획 관리는 관리자 권한이 필요합니다.");return;}setPlans(items);}} addAudit={addAudit} showToast={showToast} />}
+        {activeView === "scope3" && <Scope3SupplyChain requests={scope3Requests} suppliers={suppliers} formulas={formulas} fields={scope3Fields} templates={diagnosticTemplates} assessments={supplyChainAssessments} organizations={organizations} canManage={canManage} onRequestsChange={setScope3Requests} onTemplatesChange={setDiagnosticTemplates} onAssessmentsChange={setSupplyChainAssessments} addAudit={addAudit} showToast={showToast} />}
         {activeView === "evidence" && <Evidence items={evidence} onChange={setEvidence} showToast={showToast} />}
         {activeView === "indicators" && <Indicators items={indicators} onChange={setIndicators} showToast={showToast} />}
         {activeView === "metric-collection" && <MetricCollection requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}
         {activeView === "reports" && <ReportBuilder reports={reports} records={records} targets={targets} indicators={indicators} standards={disclosureStandards} organizationNames={organizationNames} canManage={canManage} onChange={setReports} addAudit={addAudit} showToast={showToast} />}
-        {activeView === "reference" && <ReferenceManagement factors={factors} formulas={formulas} activityMasters={activityMasters} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={disclosureStandards} regulations={regulations} indicators={indicators} organizations={organizations} canManage={canManage} onFactorsChange={setFactors} onFormulasChange={setFormulas} onActivityMastersChange={setActivityMasters} onAssetUnitsChange={setAssetUnits} onScope3FieldsChange={setScope3Fields} onStandardsChange={setDisclosureStandards} onRegulationsChange={setRegulations} addAudit={addAudit} showToast={showToast} />}
+        {activeView === "reference" && <ReferenceManagement factors={factors} formulas={formulas} activityMasters={activityMasters} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={disclosureStandards} regulations={regulations} suppliers={suppliers} productMaterials={productMaterials} transportRoutes={transportRoutes} disclosureMappings={disclosureMappings} indicators={indicators} organizations={organizations} canManage={canManage} onFactorsChange={setFactors} onFormulasChange={setFormulas} onActivityMastersChange={setActivityMasters} onAssetUnitsChange={setAssetUnits} onScope3FieldsChange={setScope3Fields} onStandardsChange={setDisclosureStandards} onRegulationsChange={setRegulations} onSuppliersChange={setSuppliers} onProductMaterialsChange={setProductMaterials} onTransportRoutesChange={setTransportRoutes} onDisclosureMappingsChange={setDisclosureMappings} addAudit={addAudit} showToast={showToast} />}
         {activeView === "audit" && <AuditLog items={audit} showToast={showToast} />}
         {activeView === "settings" && <Settings factors={factors} onFactorsChange={setFactors} criteria={criteria} onCriteriaChange={setCriteria} noticePrefs={noticePrefs} onNoticePrefsChange={setNoticePrefs} organizations={organizations} onOrganizationsChange={setOrganizations} onExport={exportBackup} onRestore={restoreBackup} showToast={showToast} />}
       </main>
@@ -1658,38 +1915,116 @@ function ReportPreview({report,records,targets,indicators}:{report:Sustainabilit
   return <section className="report-preview-shell"><div className="report-preview-note"><Icon name="file" size={16}/><span>{orientation==="portrait"?"세로형 A4":"현대차 보고서형 16:9"} 캔버스의 위치·크기·인쇄 서식을 그대로 미리봅니다. 상단의 PDF 인쇄 버튼으로 저장할 수 있습니다.</span></div><article className={`report-preview-document orientation-${orientation}`} style={style}><section className="report-cover"><div className="report-cover-mark">SEWON</div><div><span>{report.year} SUSTAINABILITY REPORT</span><h1>{report.title}</h1><p>{report.organization}</p></div><footer><span>{report.reportingPeriod}</span><span>{report.frameworks.join(" · ")}</span></footer></section>{report.pages.map((page,index)=><section className="report-preview-page" key={page.id}><header><span>{page.section.toUpperCase()}</span><em>{page.title}</em></header>{page.blocks.map((block,blockIndex)=>{const layout=reportBlockLayout(block,blockIndex);return <div className={`report-preview-positioned ${block.type}`} key={block.id} style={{left:`${layout.x}%`,top:`${layout.y}%`,width:`${layout.w}%`,height:`${layout.h}%`,zIndex:blockIndex+1,color:block.color??"#263832",backgroundColor:block.backgroundColor??"transparent",textAlign:block.textAlign??"left",border:block.border?"1px solid #b9cfc6":"1px solid transparent"} as CSSProperties}><ReportCanvasBlockContent block={block} report={report} records={records} targets={targets} indicators={indicators}/></div>})}<footer>{report.organization} · {report.year} · {String(index+1).padStart(3,"0")}</footer></section>)}</article></section>;
 }
 
-type ReferenceTab="overview"|"assets"|"activities"|"formulas"|"factors"|"scope3"|"standards"|"regulations";
+type Scope3WorkspaceTab="requests"|"responses"|"diagnostics";
 
-function ReferenceManagement({factors,formulas,activityMasters,assetUnits,scope3Fields,standards,regulations,indicators,organizations,canManage,onFactorsChange,onFormulasChange,onActivityMastersChange,onAssetUnitsChange,onScope3FieldsChange,onStandardsChange,onRegulationsChange,addAudit,showToast}:{factors:EmissionFactor[];formulas:CalculationFormula[];activityMasters:ActivityMaster[];assetUnits:AssetUnit[];scope3Fields:Scope3FieldDefinition[];standards:DisclosureStandard[];regulations:ComplianceRegulation[];indicators:Indicator[];organizations:Record<string,string[]>;canManage:boolean;onFactorsChange:(x:EmissionFactor[])=>void;onFormulasChange:(x:CalculationFormula[])=>void;onActivityMastersChange:(x:ActivityMaster[])=>void;onAssetUnitsChange:(x:AssetUnit[])=>void;onScope3FieldsChange:(x:Scope3FieldDefinition[])=>void;onStandardsChange:(x:DisclosureStandard[])=>void;onRegulationsChange:(x:ComplianceRegulation[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(m:string)=>void}){
+function Scope3SupplyChain({requests,suppliers,formulas,fields,templates,assessments,organizations,canManage,onRequestsChange,onTemplatesChange,onAssessmentsChange,addAudit,showToast}:{requests:Scope3DataRequest[];suppliers:SupplierMaster[];formulas:CalculationFormula[];fields:Scope3FieldDefinition[];templates:DiagnosticTemplate[];assessments:SupplyChainAssessment[];organizations:Record<string,string[]>;canManage:boolean;onRequestsChange:(x:Scope3DataRequest[])=>void;onTemplatesChange:(x:DiagnosticTemplate[])=>void;onAssessmentsChange:(x:SupplyChainAssessment[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
+  const [tab,setTab]=useState<Scope3WorkspaceTab>("requests");
+  const [requestOpen,setRequestOpen]=useState(false);
+  const [templateOpen,setTemplateOpen]=useState(false);
+  const [assessmentOpen,setAssessmentOpen]=useState(false);
+  const activeRequests=requests.filter(item=>["대기중","진행중","재요청"].includes(item.status));
+  const totalTargets=requests.reduce((sum,item)=>sum+item.targetIds.length,0);
+  const totalSubmitted=requests.reduce((sum,item)=>sum+item.submittedCount,0);
+  const responseRate=totalTargets?Math.round(totalSubmitted/totalTargets*100):0;
+  const assessmentTargets=assessments.reduce((sum,item)=>sum+item.supplierIds.length,0);
+  const assessmentCompleted=assessments.reduce((sum,item)=>sum+item.completedCount,0);
+  const categoryName=(code:string)=>SCOPE3_CATEGORIES.find(item=>item.code===code)?.name??code;
+  const updateRequestStatus=(id:string,status:Scope3RequestStatus)=>{
+    if(!canManage)return;
+    onRequestsChange(requests.map(item=>item.id===id?{...item,status,updatedAt:nowLabel()}:item));
+    addAudit("Scope 3 요청 상태 변경",requests.find(item=>item.id===id)?.title??id,status);
+    showToast(`요청 상태를 ${status}(으)로 변경했습니다.`);
+  };
+  return <><PageHeader eyebrow="SCOPE 3 & SUPPLY CHAIN" title="Scope 3·공급망 관리" description="범주별 입력항목과 산정식을 기준으로 협력사·업무담당자에게 데이터를 요청하고, 취합·검토·공급망 진단까지 이어서 관리합니다."><button className="secondary-button" onClick={()=>setAssessmentOpen(true)} disabled={!canManage}><Icon name="check" size={16}/>공급망 진단 요청</button><button className="primary-button" onClick={()=>setRequestOpen(true)} disabled={!canManage}><Icon name="plus" size={16}/>데이터 수집 요청</button></PageHeader>
+    <section className="collection-summary scope3-summary"><SummaryTile label="진행 중 요청" value={activeRequests.length} suffix="건" icon="clock" tone="amber"/><SummaryTile label="데이터 취합률" value={responseRate} suffix="%" icon="database" tone="green"/><SummaryTile label="등록 협력사" value={suppliers.filter(item=>item.active).length} suffix="개사" icon="building" tone="blue"/><SummaryTile label="진단 완료율" value={assessmentTargets?Math.round(assessmentCompleted/assessmentTargets*100):0} suffix="%" icon="check" tone="green"/></section>
+    <section className="card scope3-workspace"><div className="workspace-tabs"><button className={tab==="requests"?"active":""} onClick={()=>setTab("requests")}>수집 요청 <span>{requests.length}</span></button><button className={tab==="responses"?"active":""} onClick={()=>setTab("responses")}>담당자 입력·검토 <span>{totalSubmitted}</span></button><button className={tab==="diagnostics"?"active":""} onClick={()=>setTab("diagnostics")}>공급망 수준 진단 <span>{assessments.length}</span></button></div>
+      {tab==="requests"&&<div className="table-scroll"><table className="data-table scope3-request-table"><thead><tr><th>요청명</th><th>보고연도·범주</th><th>대상</th><th>입력기간</th><th>취합률</th><th>상태</th><th>관리</th></tr></thead><tbody>{requests.map(item=>{const progress=item.targetIds.length?Math.round(item.submittedCount/item.targetIds.length*100):0;return <tr key={item.id}><td><strong>{item.title}</strong><span>{item.organizationScope.join(" · ")||"전체 조직"}{item.cbam?" · CBAM 항목 포함":""}</span></td><td>{item.year}<span>{item.categoryCode} · {categoryName(item.categoryCode)}</span></td><td>{item.targetType}<span>{item.targetIds.length}개 대상</span></td><td>{item.dueDate||"미지정"}<span>{item.reminder?"마감 1일 전 알림":"알림 없음"}</span></td><td><strong>{progress}%</strong><span>{item.submittedCount}/{item.targetIds.length} 제출 · {item.reviewedCount} 검토</span></td><td><StatusBadge status={item.status}/></td><td><div className="row-actions">{item.status==="대기중"&&<button onClick={()=>updateRequestStatus(item.id,"진행중")}>수집 시작</button>}{["진행중","입력완료","재요청"].includes(item.status)&&<button className="confirm" onClick={()=>updateRequestStatus(item.id,"검토완료")}>검토 완료</button>}{item.status==="검토완료"&&<button onClick={()=>updateRequestStatus(item.id,"재요청")}>보완 요청</button>}</div></td></tr>})}</tbody></table>{!requests.length&&<ReferenceEmpty icon="database" title="등록된 Scope 3 수집 요청이 없습니다." description="범주와 산정식, 대상자를 연결해 첫 수집 요청을 만들어 주세요."/>}</div>}
+      {tab==="responses"&&<div className="scope3-response-board"><div className="response-status-strip">{(["대기중","진행중","입력완료","검토완료","재요청","요청취소"] as Scope3RequestStatus[]).map(status=><div key={status}><span>{status}</span><strong>{requests.filter(item=>item.status===status).length}</strong></div>)}</div><div className="response-card-grid">{requests.map(item=><article key={item.id}><div><span>{item.categoryCode}</span><StatusBadge status={item.status}/></div><strong>{item.title}</strong><p>{categoryName(item.categoryCode)} · {item.targetType} {item.targetIds.length}개</p><div className="mini-progress"><span style={{width:`${item.targetIds.length?Math.round(item.submittedCount/item.targetIds.length*100):0}%`}}/></div><footer><span>입력항목 {fields.filter(field=>field.categoryCode===item.categoryCode&&field.active).length}개</span><span>검토 {item.reviewedCount}/{item.targetIds.length}</span></footer></article>)}</div>{!requests.length&&<ReferenceEmpty icon="list" title="검토할 요청이 없습니다." description="수집 요청을 만들면 대상별 입력·검토 상태가 여기에 표시됩니다."/>}</div>}
+      {tab==="diagnostics"&&<div className="diagnostic-workspace"><div className="diagnostic-toolbar"><div><strong>진단 템플릿과 실시 현황</strong><span>평가구간·문항수·대상 협력사와 완료율을 함께 관리합니다.</span></div><button className="outline-small" onClick={()=>setTemplateOpen(true)} disabled={!canManage}><Icon name="plus" size={14}/>템플릿 등록</button></div><div className="diagnostic-grid"><section><h3>진단 템플릿</h3>{templates.map(item=><article key={item.id}><div><strong>{item.title}</strong><StatusBadge status={item.active?"사용":"중지"}/></div><p>{item.description||"설명 없음"}</p><footer><span>{item.questionCount}문항</span><span>{item.totalScore}점 · {item.gradeScheme}</span></footer></article>)}{!templates.length&&<ReferenceEmpty icon="file" title="진단 템플릿이 없습니다." description="평가문항과 등급구간의 기준이 될 템플릿을 등록해 주세요."/>}</section><section><h3>수준 진단 실시</h3>{assessments.map(item=>{const rate=item.supplierIds.length?Math.round(item.completedCount/item.supplierIds.length*100):0;return <article key={item.id}><div><strong>{item.title}</strong><StatusBadge status={item.status}/></div><p>{item.periodFrom} ~ {item.periodTo} · {item.supplierIds.length}개사</p><div className="mini-progress"><span style={{width:`${rate}%`}}/></div><footer><span>완료 {item.completedCount}/{item.supplierIds.length}</span><span>{rate}%</span></footer></article>})}{!assessments.length&&<ReferenceEmpty icon="check" title="진행 중인 공급망 진단이 없습니다." description="템플릿과 대상 협력사를 선택해 진단을 요청해 주세요."/>}</section></div></div>}
+    </section>
+    {requestOpen&&<Scope3RequestForm suppliers={suppliers} formulas={formulas} fields={fields} organizations={organizations} onClose={()=>setRequestOpen(false)} onSave={item=>{onRequestsChange([item,...requests]);addAudit("Scope 3 수집 요청",item.title,`${item.categoryCode} · ${item.targetIds.length}개 대상`);setRequestOpen(false);showToast("Scope 3 데이터 수집 요청을 저장했습니다.");}}/>}
+    {templateOpen&&<DiagnosticTemplateForm onClose={()=>setTemplateOpen(false)} onSave={item=>{onTemplatesChange([item,...templates]);addAudit("진단 템플릿 등록",item.title,`${item.questionCount}문항 · ${item.gradeScheme}`);setTemplateOpen(false);showToast("공급망 진단 템플릿을 저장했습니다.");}}/>}
+    {assessmentOpen&&<SupplyChainAssessmentForm suppliers={suppliers} templates={templates} onClose={()=>setAssessmentOpen(false)} onSave={item=>{onAssessmentsChange([item,...assessments]);addAudit("공급망 진단 요청",item.title,`${item.supplierIds.length}개사`);setAssessmentOpen(false);showToast("공급망 수준 진단 요청을 저장했습니다.");}}/>}
+  </>;
+}
+
+function Scope3RequestForm({suppliers,formulas,fields,organizations,onClose,onSave}:{suppliers:SupplierMaster[];formulas:CalculationFormula[];fields:Scope3FieldDefinition[];organizations:Record<string,string[]>;onClose:()=>void;onSave:(x:Scope3DataRequest)=>void}){
+  const firstCategory=SCOPE3_CATEGORIES[0]?.code??"Cat.1";
+  const [form,setForm]=useState<Scope3DataRequest>({id:`S3REQ-${crypto.randomUUID()}`,title:"",year:new Date().getFullYear(),categoryCode:firstCategory,organizationScope:[],formulaId:"",dueDate:"",targetType:"협력사",targetIds:[],reminder:true,cbam:false,status:"대기중",submittedCount:0,reviewedCount:0,updatedAt:nowLabel()});
+  const patch=(p:Partial<Scope3DataRequest>)=>setForm(value=>({...value,...p}));
+  const toggle=(values:string[],value:string)=>values.includes(value)?values.filter(item=>item!==value):[...values,value];
+  const targets=form.targetType==="협력사"?suppliers.filter(item=>item.active).map(item=>({id:item.id,label:`${item.name} · ${item.category} · ${item.tier}`})):Object.keys(organizations).map(item=>({id:item,label:`${item} 업무담당자`}));
+  const categoryFields=fields.filter(item=>item.categoryCode===form.categoryCode&&item.active).sort((a,b)=>a.sortOrder-b.sortOrder);
+  const availableFormulas=formulas.filter(item=>item.active&&item.scope==="Scope 3"&&(!item.categoryCode||item.categoryCode===form.categoryCode));
+  return <Overlay title="Scope 3 데이터 수집 요청" eyebrow="DATA REQUEST" description="범주별 입력양식·산정식·대상자를 연결해 수집 업무를 생성합니다." onClose={onClose}><form onSubmit={event=>{event.preventDefault();if(!form.targetIds.length)return;onSave({...form,updatedAt:nowLabel()})}}>
+    <div className="form-section"><h3><span>1</span>보고기준·산정방식</h3><div className="form-grid"><label className="full-span">요청명<input value={form.title} onChange={e=>patch({title:e.target.value})} placeholder="예: 2026년 구매한 재화 및 서비스 데이터 수집" required/></label><label>보고연도<input type="number" min="2015" max="2100" value={form.year} onChange={e=>patch({year:Number(e.target.value)})}/></label><label>Scope 3 범주<select value={form.categoryCode} onChange={e=>patch({categoryCode:e.target.value,formulaId:""})}>{SCOPE3_CATEGORIES.map(item=><option value={item.code} key={item.code}>{item.code} · {item.name}</option>)}</select></label><label>산정식<select value={form.formulaId} onChange={e=>patch({formulaId:e.target.value})}><option value="">산정식 선택</option>{availableFormulas.map(item=><option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label><label>마감일<input type="date" value={form.dueDate} onChange={e=>patch({dueDate:e.target.value})} required/></label></div><div className="request-field-preview"><strong>요청 데이터 미리보기</strong><div>{categoryFields.length?categoryFields.map(item=><span key={item.id}>{item.nameKr}{item.required?" *":""}<small>{item.inputType}</small></span>):<p>기준정보에서 이 범주의 입력항목을 먼저 생성해 주세요.</p>}</div></div></div>
+    <div className="form-section"><h3><span>2</span>조직·입력 대상</h3><div className="request-option-grid"><div><strong>관련 조직</strong>{Object.keys(organizations).map(item=><label key={item}><input type="checkbox" checked={form.organizationScope.includes(item)} onChange={()=>patch({organizationScope:toggle(form.organizationScope,item)})}/>{item}</label>)}</div><div><strong>입력 대상</strong><div className="segmented-control"><button type="button" className={form.targetType==="협력사"?"active":""} onClick={()=>patch({targetType:"협력사",targetIds:[]})}>협력사</button><button type="button" className={form.targetType==="업무담당자"?"active":""} onClick={()=>patch({targetType:"업무담당자",targetIds:[]})}>업무담당자</button></div>{targets.map(item=><label key={item.id}><input type="checkbox" checked={form.targetIds.includes(item.id)} onChange={()=>patch({targetIds:toggle(form.targetIds,item.id)})}/>{item.label}</label>)}{!targets.length&&<p>기준정보에서 대상을 먼저 등록해 주세요.</p>}</div></div><div className="toggle-stack"><Toggle label="마감일 1일 전 리마인드" checked={form.reminder} onChange={reminder=>patch({reminder})}/><Toggle label="CBAM 보고항목 포함" checked={form.cbam} onChange={cbam=>patch({cbam})}/></div></div>
+    <div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button" disabled={!form.title||!form.dueDate||!form.targetIds.length}><Icon name="check" size={16}/>요청 저장</button></div>
+  </form></Overlay>;
+}
+
+function DiagnosticTemplateForm({onClose,onSave}:{onClose:()=>void;onSave:(x:DiagnosticTemplate)=>void}){
+  const [form,setForm]=useState<DiagnosticTemplate>({id:`DIAGTPL-${crypto.randomUUID()}`,title:"",description:"",totalScore:100,gradeScheme:"5단계",questionCount:0,active:true,updatedAt:nowLabel()});
+  const patch=(p:Partial<DiagnosticTemplate>)=>setForm(value=>({...value,...p}));
+  return <Overlay title="진단 템플릿 등록" eyebrow="SUPPLY CHAIN DIAGNOSIS" description="문항 구성의 기준과 결과 등급구간을 설정합니다." onClose={onClose} size="small"><form onSubmit={event=>{event.preventDefault();onSave(form)}}><div className="form-section"><div className="form-grid"><label className="full-span">템플릿명<input value={form.title} onChange={e=>patch({title:e.target.value})} required/></label><label>총점<input type="number" min="1" value={form.totalScore} onChange={e=>patch({totalScore:Number(e.target.value)})}/></label><label>문항수<input type="number" min="0" value={form.questionCount} onChange={e=>patch({questionCount:Number(e.target.value)})}/></label><label>등급구간<select value={form.gradeScheme} onChange={e=>patch({gradeScheme:e.target.value as DiagnosticTemplate["gradeScheme"]})}><option>5단계</option><option>7단계</option><option>사용자 지정</option></select></label><label className="full-span textarea-label">설명<textarea value={form.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="진단 요청 시 사용" checked={form.active} onChange={active=>patch({active})}/></div><div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button">저장</button></div></form></Overlay>;
+}
+
+function SupplyChainAssessmentForm({suppliers,templates,onClose,onSave}:{suppliers:SupplierMaster[];templates:DiagnosticTemplate[];onClose:()=>void;onSave:(x:SupplyChainAssessment)=>void}){
+  const [form,setForm]=useState<SupplyChainAssessment>({id:`DIAG-${crypto.randomUUID()}`,title:"",year:new Date().getFullYear(),periodFrom:"",periodTo:"",templateId:templates.find(item=>item.active)?.id??"",supplierIds:[],reminder:true,completedCount:0,status:"예정",updatedAt:nowLabel()});
+  const patch=(p:Partial<SupplyChainAssessment>)=>setForm(value=>({...value,...p}));
+  const toggle=(values:string[],value:string)=>values.includes(value)?values.filter(item=>item!==value):[...values,value];
+  return <Overlay title="공급망 수준 진단 요청" eyebrow="ASSESSMENT REQUEST" description="진단 템플릿과 대상 협력사, 실시기간을 연결합니다." onClose={onClose}><form onSubmit={event=>{event.preventDefault();onSave(form)}}><div className="form-section"><div className="form-grid"><label className="full-span">진단명<input value={form.title} onChange={e=>patch({title:e.target.value})} required/></label><label>기준연도<input type="number" value={form.year} onChange={e=>patch({year:Number(e.target.value)})}/></label><label>진단 템플릿<select value={form.templateId} onChange={e=>patch({templateId:e.target.value})} required><option value="">템플릿 선택</option>{templates.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.title}</option>)}</select></label><label>시작일<input type="date" value={form.periodFrom} onChange={e=>patch({periodFrom:e.target.value})} required/></label><label>종료일<input type="date" value={form.periodTo} onChange={e=>patch({periodTo:e.target.value})} required/></label></div><div className="assessment-targets"><strong>진단 대상기업</strong>{suppliers.filter(item=>item.active).map(item=><label key={item.id}><input type="checkbox" checked={form.supplierIds.includes(item.id)} onChange={()=>patch({supplierIds:toggle(form.supplierIds,item.id)})}/><span>{item.name}</span><small>{item.category} · {item.tier}</small></label>)}{!suppliers.some(item=>item.active)&&<p>기준정보에서 협력사를 먼저 등록해 주세요.</p>}</div><Toggle label="종료일 1일 전 리마인드" checked={form.reminder} onChange={reminder=>patch({reminder})}/></div><div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button" disabled={!form.templateId||!form.supplierIds.length}>진단 요청 저장</button></div></form></Overlay>;
+}
+
+type ReferenceTab="overview"|"assets"|"activities"|"formulas"|"factors"|"scope3"|"suppliers"|"materials"|"routes"|"standards"|"mappings"|"regulations";
+
+function ReferenceManagement({factors,formulas,activityMasters,assetUnits,scope3Fields,standards,regulations,suppliers,productMaterials,transportRoutes,disclosureMappings,indicators,organizations,canManage,onFactorsChange,onFormulasChange,onActivityMastersChange,onAssetUnitsChange,onScope3FieldsChange,onStandardsChange,onRegulationsChange,onSuppliersChange,onProductMaterialsChange,onTransportRoutesChange,onDisclosureMappingsChange,addAudit,showToast}:{factors:EmissionFactor[];formulas:CalculationFormula[];activityMasters:ActivityMaster[];assetUnits:AssetUnit[];scope3Fields:Scope3FieldDefinition[];standards:DisclosureStandard[];regulations:ComplianceRegulation[];suppliers:SupplierMaster[];productMaterials:ProductMaterialMaster[];transportRoutes:TransportRoute[];disclosureMappings:DisclosureMapping[];indicators:Indicator[];organizations:Record<string,string[]>;canManage:boolean;onFactorsChange:(x:EmissionFactor[])=>void;onFormulasChange:(x:CalculationFormula[])=>void;onActivityMastersChange:(x:ActivityMaster[])=>void;onAssetUnitsChange:(x:AssetUnit[])=>void;onScope3FieldsChange:(x:Scope3FieldDefinition[])=>void;onStandardsChange:(x:DisclosureStandard[])=>void;onRegulationsChange:(x:ComplianceRegulation[])=>void;onSuppliersChange:(x:SupplierMaster[])=>void;onProductMaterialsChange:(x:ProductMaterialMaster[])=>void;onTransportRoutesChange:(x:TransportRoute[])=>void;onDisclosureMappingsChange:(x:DisclosureMapping[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(m:string)=>void}){
   const [tab,setTab]=useState<ReferenceTab>("overview");
   const [reviewHorizon]=useState(()=>Date.now()+30*86400000);
-  const tabs:{id:ReferenceTab;label:string;icon:IconName}[]=[
-    {id:"overview",label:"기준정보 현황",icon:"dashboard"},{id:"assets",label:"조직·자산",icon:"building"},{id:"activities",label:"물질·단위",icon:"database"},{id:"formulas",label:"계산식",icon:"edit"},{id:"factors",label:"배출계수",icon:"leaf"},{id:"scope3",label:"Scope 3 입력항목",icon:"list"},{id:"standards",label:"보고기준",icon:"file"},{id:"regulations",label:"규제관리",icon:"alert"},
+  const tabs:{id:ReferenceTab;label:string;icon:IconName;group:string}[]=[
+    {id:"overview",label:"기준정보 현황",icon:"dashboard",group:"현황"},
+    {id:"assets",label:"조직·자산 계층",icon:"building",group:"조직·산정"},
+    {id:"activities",label:"물질·단위",icon:"database",group:"조직·산정"},
+    {id:"factors",label:"배출계수",icon:"leaf",group:"조직·산정"},
+    {id:"formulas",label:"산정식",icon:"edit",group:"조직·산정"},
+    {id:"scope3",label:"범주별 입력항목",icon:"list",group:"Scope 3·공급망"},
+    {id:"suppliers",label:"공급사",icon:"building",group:"Scope 3·공급망"},
+    {id:"materials",label:"자재·제품",icon:"database",group:"Scope 3·공급망"},
+    {id:"routes",label:"이동거리",icon:"arrow",group:"Scope 3·공급망"},
+    {id:"standards",label:"보고기준·항목",icon:"file",group:"공시·규제"},
+    {id:"mappings",label:"지표·기준 연결",icon:"list",group:"공시·규제"},
+    {id:"regulations",label:"규제·준수",icon:"alert",group:"공시·규제"},
   ];
   const reviewDue=regulations.filter(item=>item.active&&item.nextReviewDate&&new Date(item.nextReviewDate).getTime()<=reviewHorizon).length;
   const changeTab=(next:ReferenceTab)=>{setTab(next);window.requestAnimationFrame(()=>window.scrollTo({top:0,behavior:"smooth"}));};
   return <><PageHeader eyebrow="MASTER DATA & COMPLIANCE" title="기준정보·규제 관리" description="배출량 산정에 필요한 조직·자산·물질·단위·계산식·배출계수와 보고기준·규제·검토주기를 한곳에서 연결합니다."><span className="reference-source-badge"><Icon name="check" size={15}/>통합 기준정보</span></PageHeader>
-    <div className="reference-layout"><aside className="reference-nav">{tabs.map(item=><button key={item.id} className={tab===item.id?"active":""} onClick={()=>changeTab(item.id)}><Icon name={item.icon} size={17}/><span>{item.label}</span>{item.id==="regulations"&&reviewDue>0?<em>{reviewDue}</em>:null}</button>)}</aside><section className="reference-content">
-      {tab==="overview"&&<ReferenceOverview factors={factors} formulas={formulas} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={standards} regulations={regulations} onNavigate={changeTab}/>}
+    <div className="reference-layout"><aside className="reference-nav">{["현황","조직·산정","Scope 3·공급망","공시·규제"].map(group=><div className="reference-nav-group" key={group}><strong>{group}</strong>{tabs.filter(item=>item.group===group).map(item=><button key={item.id} className={tab===item.id?"active":""} onClick={()=>changeTab(item.id)}><Icon name={item.icon} size={17}/><span>{item.label}</span>{item.id==="regulations"&&reviewDue>0?<em>{reviewDue}</em>:null}</button>)}</div>)}</aside><section className="reference-content">
+      {tab==="overview"&&<ReferenceOverview factors={factors} formulas={formulas} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={standards} regulations={regulations} suppliers={suppliers} mappings={disclosureMappings} onNavigate={changeTab}/>}
       {tab==="assets"&&<AssetManager items={assetUnits} formulas={formulas} organizations={organizations} canManage={canManage} onChange={onAssetUnitsChange} addAudit={addAudit} showToast={showToast}/>}
       {tab==="activities"&&<ActivityMasterManager items={activityMasters} canManage={canManage} onChange={onActivityMastersChange} addAudit={addAudit} showToast={showToast}/>}
       {tab==="formulas"&&<FormulaManager items={formulas} factors={factors} canManage={canManage} onChange={onFormulasChange} addAudit={addAudit} showToast={showToast}/>}
       {tab==="factors"&&<ReferenceFactorManager items={factors} canManage={canManage} onChange={onFactorsChange} addAudit={addAudit} showToast={showToast}/>}
       {tab==="scope3"&&<Scope3FieldManager items={scope3Fields} canManage={canManage} onChange={onScope3FieldsChange} addAudit={addAudit} showToast={showToast}/>}
+      {tab==="suppliers"&&<SupplierManager items={suppliers} canManage={canManage} onChange={onSuppliersChange} addAudit={addAudit} showToast={showToast}/>}
+      {tab==="materials"&&<ProductMaterialManager items={productMaterials} suppliers={suppliers} canManage={canManage} onChange={onProductMaterialsChange} addAudit={addAudit} showToast={showToast}/>}
+      {tab==="routes"&&<TransportRouteManager items={transportRoutes} canManage={canManage} onChange={onTransportRoutesChange} addAudit={addAudit} showToast={showToast}/>}
       {tab==="standards"&&<StandardManager items={standards} canManage={canManage} onChange={onStandardsChange} addAudit={addAudit} showToast={showToast}/>}
+      {tab==="mappings"&&<DisclosureMappingManager items={disclosureMappings} standards={standards} regulations={regulations} indicators={indicators} canManage={canManage} onChange={onDisclosureMappingsChange} addAudit={addAudit} showToast={showToast}/>}
       {tab==="regulations"&&<RegulationManager items={regulations} standards={standards} indicators={indicators} canManage={canManage} onChange={onRegulationsChange} addAudit={addAudit} showToast={showToast}/>}
     </section></div>
   </>;
 }
 
-function ReferenceOverview({factors,formulas,assetUnits,scope3Fields,standards,regulations,onNavigate}:{factors:EmissionFactor[];formulas:CalculationFormula[];assetUnits:AssetUnit[];scope3Fields:Scope3FieldDefinition[];standards:DisclosureStandard[];regulations:ComplianceRegulation[];onNavigate:(tab:ReferenceTab)=>void}){
+function ReferenceOverview({factors,formulas,assetUnits,scope3Fields,standards,regulations,suppliers,mappings,onNavigate}:{factors:EmissionFactor[];formulas:CalculationFormula[];assetUnits:AssetUnit[];scope3Fields:Scope3FieldDefinition[];standards:DisclosureStandard[];regulations:ComplianceRegulation[];suppliers:SupplierMaster[];mappings:DisclosureMapping[];onNavigate:(tab:ReferenceTab)=>void}){
   const configuredCategories=new Set(scope3Fields.filter(item=>item.active).map(item=>item.categoryCode)).size;
   const cards=[
     {tab:"assets" as ReferenceTab,title:"조직·자산 계층",value:assetUnits.length,unit:"개",desc:"사업장·기능위치·배출시설·계측기",icon:"building" as IconName},
     {tab:"formulas" as ReferenceTab,title:"산정 계산식",value:formulas.filter(item=>item.active).length,unit:"개",desc:"배출계수와 연결된 산정 로직",icon:"edit" as IconName},
     {tab:"factors" as ReferenceTab,title:"배출계수",value:factors.filter(item=>item.active).length,unit:"개",desc:"Scope 1·2·3 공식·공급자·참고계수",icon:"leaf" as IconName},
     {tab:"scope3" as ReferenceTab,title:"Scope 3 범주",value:configuredCategories,unit:"/ 15",desc:"범주별 입력 필드·단위·필수값",icon:"list" as IconName},
+    {tab:"suppliers" as ReferenceTab,title:"공급사 기준정보",value:suppliers.filter(item=>item.active).length,unit:"개사",desc:"공급망 분류·Tier·연락처·담당자",icon:"building" as IconName},
     {tab:"standards" as ReferenceTab,title:"보고기준",value:standards.filter(item=>item.active).length,unit:"개",desc:"버전·계층형 공시항목·변경이력",icon:"file" as IconName},
+    {tab:"mappings" as ReferenceTab,title:"공시 연결표",value:mappings.filter(item=>item.status==="연결완료").length,unit:"건",desc:"정량지표·기준항목·규제·증빙 연결",icon:"list" as IconName},
     {tab:"regulations" as ReferenceTab,title:"적용 규제",value:regulations.filter(item=>item.active&&item.status!=="미적용").length,unit:"건",desc:"담당자·검토주기·지표·증빙 연결",icon:"alert" as IconName},
   ];
   return <><section className="card reference-overview-card"><CardHeader title="기준정보 연결 현황" subtitle="각 기준정보는 개별 목록이 아니라 산정·수집·공시·규제 대응 과정에서 서로 참조됩니다."/><div className="reference-flow"><div><span>조직·자산</span><strong>산정 경계</strong></div><Icon name="arrow" size={17}/><div><span>물질·계산식·계수</span><strong>배출량 산정</strong></div><Icon name="arrow" size={17}/><div><span>지표·보고기준</span><strong>공시 데이터</strong></div><Icon name="arrow" size={17}/><div><span>규제·증빙·검토</span><strong>준수 관리</strong></div></div></section>
@@ -1698,23 +2033,23 @@ function ReferenceOverview({factors,formulas,assetUnits,scope3Fields,standards,r
 }
 
 function AssetManager({items,formulas,organizations,canManage,onChange,addAudit,showToast}:{items:AssetUnit[];formulas:CalculationFormula[];organizations:Record<string,string[]>;canManage:boolean;onChange:(x:AssetUnit[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
-  const companyNames=Object.keys(organizations);const empty:AssetUnit={id:"",company:companyNames[0]??"",site:organizations[companyNames[0]??""]?.[0]??"",name:"",type:"배출시설",parentId:"",scope:"Scope 1",formulaId:"",address:"",description:"",active:true,updatedAt:""};
+  const companyNames=Object.keys(organizations);const empty:AssetUnit={id:"",code:"",company:companyNames[0]??"",site:organizations[companyNames[0]??""]?.[0]??"",name:"",type:"배출시설",parentId:"",scope:"Scope 1",formulaId:"",address:"",description:"",active:true,updatedAt:"",classification:"설비 및 기계",activityType:"고정연소",country:"대한민국",latitude:"",longitude:"",department:"",owner:"",position:"",phone:"",email:""};
   const [draft,setDraft]=useState<AssetUnit>(empty);const patch=(p:Partial<AssetUnit>)=>setDraft(current=>({...current,...p}));
   const save=(e:FormEvent)=>{e.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`ASSET-${crypto.randomUUID()}`,updatedAt:nowLabel()};onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"자산 수정":"자산 등록",next.name,`${next.company} · ${next.site} · ${next.type}`);setDraft({...empty,company:next.company,site:next.site});showToast("조직·자산 기준정보를 저장했습니다.");};
   const remove=()=>{if(!draft.id||!canManage||!window.confirm("이 자산 기준정보를 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id&&item.parentId!==draft.id));addAudit("자산 삭제",draft.name,"선택 자산과 바로 연결된 하위 기준을 삭제했습니다.");setDraft(empty);showToast("자산 기준정보를 삭제했습니다.");};
-  return <ReferencePanel title="조직·자산 계층" subtitle="사업장 아래 기능위치·배출시설·계측기를 만들고 기본 산정식을 연결합니다."><div className="reference-split"><div className="reference-list"><div className="reference-list-head"><strong>자산 목록</strong><button className="outline-small" disabled={!canManage} onClick={()=>setDraft(empty)}><Icon name="plus" size={14}/>새 자산</button></div>{items.map(item=><button key={item.id} className={draft.id===item.id?"active":""} onClick={()=>setDraft(item)}><span className={`reference-node type-${item.type}`}>{item.type.slice(0,1)}</span><div><strong>{item.name}</strong><small>{item.company} · {item.site} · {item.scope}</small></div><StatusBadge status={item.active?"사용":"중지"}/></button>)}{!items.length&&<ReferenceEmpty icon="building" title="등록된 자산이 없습니다." description="첫 배출시설 또는 계측기를 추가해 주세요."/>}</div><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"자산 수정":"새 자산"} description="상위 자산과 산정식을 연결하면 활동자료 입력 기준으로 재사용됩니다."/><div className="form-grid"><label>법인<select value={draft.company} onChange={e=>patch({company:e.target.value,site:organizations[e.target.value]?.[0]??""})}>{companyNames.map(item=><option key={item}>{item}</option>)}</select></label><label>사업장<select value={draft.site} onChange={e=>patch({site:e.target.value})}>{(organizations[draft.company]??[]).map(item=><option key={item}>{item}</option>)}</select></label><label>자산 유형<select value={draft.type} onChange={e=>patch({type:e.target.value as AssetUnit["type"]})}><option>사업장</option><option>기능위치</option><option>배출시설</option><option>계측기</option></select></label><label>Scope<select value={draft.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label className="full-span">자산명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>상위 자산<select value={draft.parentId} onChange={e=>patch({parentId:e.target.value})}><option value="">최상위</option>{items.filter(item=>item.id!==draft.id&&item.company===draft.company).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>기본 계산식<select value={draft.formulaId} onChange={e=>patch({formulaId:e.target.value})}><option value="">연결 안 함</option>{formulas.filter(item=>item.active&&item.scope===draft.scope).map(item=><option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label><label className="full-span">주소·위치<input value={draft.address} onChange={e=>patch({address:e.target.value})}/></label><label className="full-span textarea-label">설명<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="사용 중" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={remove}/></form></div></ReferencePanel>;
+  return <ReferencePanel title="조직·사업장·자산 계층" subtitle="법인·사업장 아래 기능위치·배출시설·계측기를 구성하고 위치·책임자·활동구분·기본 산정식을 연결합니다."><div className="reference-split"><div className="reference-list"><div className="reference-list-head"><strong>계층 목록</strong><button className="outline-small" disabled={!canManage} onClick={()=>setDraft(empty)}><Icon name="plus" size={14}/>새 항목</button></div>{items.map(item=><button key={item.id} className={draft.id===item.id?"active":""} onClick={()=>setDraft(item)}><span className={`reference-node type-${item.type}`}>{item.type.slice(0,1)}</span><div><strong>{item.code?`${item.code} · `:""}{item.name}</strong><small>{item.company} · {item.site} · {item.type} · {item.scope}</small></div><StatusBadge status={item.active?"사용":"중지"}/></button>)}{!items.length&&<ReferenceEmpty icon="building" title="등록된 조직·자산이 없습니다." description="사업장 또는 첫 배출시설을 추가해 주세요."/>}</div><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"조직·자산 수정":"새 조직·자산"} description="상위 항목·산정식을 연결하면 활동자료 입력과 인벤토리 위치 분석에 재사용됩니다."/><div className="form-grid"><label>법인<select value={draft.company} onChange={e=>patch({company:e.target.value,site:organizations[e.target.value]?.[0]??""})}>{companyNames.map(item=><option key={item}>{item}</option>)}</select></label><label>사업장<select value={draft.site} onChange={e=>patch({site:e.target.value})}>{(organizations[draft.company]??[]).map(item=><option key={item}>{item}</option>)}</select></label><label>표준 코드<input value={draft.code??""} onChange={e=>patch({code:e.target.value})} placeholder="영문·숫자 10자 이내"/></label><label>항목 유형<select value={draft.type} onChange={e=>patch({type:e.target.value as AssetUnit["type"]})}><option>사업장</option><option>기능위치</option><option>배출시설</option><option>계측기</option></select></label><label className="full-span">항목명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>자산 분류<select value={draft.classification??"설비 및 기계"} onChange={e=>patch({classification:e.target.value as AssetUnit["classification"]})}><option>건물</option><option>자동차 및 이동수단</option><option>설비 및 기계</option><option>기타</option></select></label><label>활동구분<select value={draft.activityType??"고정연소"} onChange={e=>patch({activityType:e.target.value as AssetUnit["activityType"]})}><option>고정연소</option><option>이동연소</option><option>공정배출</option><option>탈루배출</option><option>전력</option><option>재생에너지</option><option>기타배출</option></select></label><label>Scope<select value={draft.scope} onChange={e=>patch({scope:e.target.value as Scope,formulaId:""})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>상위 조직·자산<select value={draft.parentId} onChange={e=>patch({parentId:e.target.value})}><option value="">최상위</option>{items.filter(item=>item.id!==draft.id&&item.company===draft.company).map(item=><option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>기본 산정식<select value={draft.formulaId} onChange={e=>patch({formulaId:e.target.value})}><option value="">연결 안 함</option>{formulas.filter(item=>item.active&&item.scope===draft.scope).map(item=><option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label><label>국가<input value={draft.country??""} onChange={e=>patch({country:e.target.value})}/></label><label className="full-span">주소·위치<input value={draft.address} onChange={e=>patch({address:e.target.value})}/></label><label>위도<input value={draft.latitude??""} onChange={e=>patch({latitude:e.target.value})}/></label><label>경도<input value={draft.longitude??""} onChange={e=>patch({longitude:e.target.value})}/></label><label>담당부서<input value={draft.department??""} onChange={e=>patch({department:e.target.value})}/></label><label>담당자<input value={draft.owner??""} onChange={e=>patch({owner:e.target.value})}/></label><label>직급<input value={draft.position??""} onChange={e=>patch({position:e.target.value})}/></label><label>전화번호<input value={draft.phone??""} onChange={e=>patch({phone:e.target.value})}/></label><label className="full-span">이메일<input type="email" value={draft.email??""} onChange={e=>patch({email:e.target.value})}/></label><label className="full-span textarea-label">설명<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="산정·수집에 사용" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={remove}/></form></div></ReferencePanel>;
 }
 
 function ActivityMasterManager({items,canManage,onChange,addAudit,showToast}:{items:ActivityMaster[];canManage:boolean;onChange:(x:ActivityMaster[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
-  const empty:ActivityMaster={id:"",code:"",name:"",group:"에너지",scope:"Scope 1",unit:"",density:undefined,densityUnit:"kg/L",description:"",active:true,updatedAt:""};const [draft,setDraft]=useState(empty);const patch=(p:Partial<ActivityMaster>)=>setDraft(current=>({...current,...p}));
+  const empty:ActivityMaster={id:"",code:"",name:"",group:"에너지",scope:"Scope 1",unit:"",density:undefined,densityUnit:"kg/L",description:"",active:true,updatedAt:"",materialType:"연료",casNumber:""};const [draft,setDraft]=useState(empty);const patch=(p:Partial<ActivityMaster>)=>setDraft(current=>({...current,...p}));
   const save=(e:FormEvent)=>{e.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`ACT-${crypto.randomUUID()}`,code:draft.code.trim().toUpperCase(),updatedAt:nowLabel()};if(items.some(item=>item.id!==next.id&&item.code===next.code)){showToast("같은 물질 코드가 이미 있습니다.");return;}onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"물질 기준 수정":"물질 기준 등록",next.name,`${next.code} · ${next.unit}`);setDraft(empty);showToast("물질·단위 기준정보를 저장했습니다.");};
-  return <ReferencePanel title="물질·단위 기준" subtitle="연료·에너지·냉매·운송 등 활동자료의 표준 코드와 기준단위·밀도를 관리합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.group} · ${item.scope} · ${item.unit}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 물질·단위가 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"물질·단위 수정":"새 물질·단위"} description="표준 코드는 Excel 검증과 Scope별 입력항목에 재사용됩니다."/><div className="form-grid"><label>표준 코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} required/></label><label>표준 명칭<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>분류<input value={draft.group} onChange={e=>patch({group:e.target.value})}/></label><label>Scope<select value={draft.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>기준 단위<input value={draft.unit} onChange={e=>patch({unit:e.target.value})} placeholder="kWh, L, kg, ton·km" required/></label><label>밀도(선택)<input type="number" step="any" min="0" value={draft.density??""} onChange={e=>patch({density:e.target.value?Number(e.target.value):undefined})}/></label><label>밀도 단위<input value={draft.densityUnit??""} onChange={e=>patch({densityUnit:e.target.value})}/></label><label className="full-span textarea-label">설명<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="사용 중" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 기준정보를 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("물질·단위 기준정보를 삭제했습니다.");}}/></form></div></ReferencePanel>;
+  return <ReferencePanel title="물질·단위 기준" subtitle="연료·온실가스·에너지·냉매·운송 등 활동자료의 표준 코드와 기준단위·밀도·CAS 번호를 관리합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.materialType??item.group} · ${item.scope} · ${item.unit}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 물질·단위가 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"물질·단위 수정":"새 물질·단위"} description="표준 코드는 Excel 검증, 산정식과 Scope별 입력항목에 재사용됩니다."/><div className="form-grid"><label>표준 코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} required/></label><label>표준 명칭<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>물질구분<select value={draft.materialType??"연료"} onChange={e=>patch({materialType:e.target.value as ActivityMaster["materialType"]})}><option>연료</option><option>온실가스</option><option>기타</option></select></label><label>상세 분류<input value={draft.group} onChange={e=>patch({group:e.target.value})}/></label><label>Scope<select value={draft.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>기준 단위<input value={draft.unit} onChange={e=>patch({unit:e.target.value})} placeholder="kWh, L, kg, ton·km" required/></label><label>밀도(선택)<input type="number" step="any" min="0" value={draft.density??""} onChange={e=>patch({density:e.target.value?Number(e.target.value):undefined})}/></label><label>밀도 단위<input value={draft.densityUnit??""} onChange={e=>patch({densityUnit:e.target.value})}/></label><label className="full-span">CAS 번호<input value={draft.casNumber??""} onChange={e=>patch({casNumber:e.target.value})} placeholder="온실가스·화학물질 식별번호"/></label><label className="full-span textarea-label">설명<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="산정·수집에 사용" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 기준정보를 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("물질·단위 기준정보를 삭제했습니다.");}}/></form></div></ReferencePanel>;
 }
 
 function FormulaManager({items,factors,canManage,onChange,addAudit,showToast}:{items:CalculationFormula[];factors:EmissionFactor[];canManage:boolean;onChange:(x:CalculationFormula[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
-  const empty:CalculationFormula={id:"",code:"",name:"",scope:"Scope 1",expression:"활동량 × 배출계수",activityUnit:"",outputUnit:"tCO₂e",factorId:"",description:"",active:true,updatedAt:""};const [draft,setDraft]=useState(empty);const patch=(p:Partial<CalculationFormula>)=>setDraft(current=>({...current,...p}));
+  const empty:CalculationFormula={id:"",code:"",name:"",scope:"Scope 1",expression:"활동량 × 배출계수",activityUnit:"",outputUnit:"tCO₂e",factorId:"",description:"",active:true,updatedAt:"",categoryCode:"",resultLabel:"탄소배출량",variableKeys:["활동량","배출계수"]};const [draft,setDraft]=useState(empty);const patch=(p:Partial<CalculationFormula>)=>setDraft(current=>({...current,...p}));
   const save=(e:FormEvent)=>{e.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`FORM-${crypto.randomUUID()}`,code:draft.code.trim().toUpperCase(),updatedAt:nowLabel()};if(items.some(item=>item.id!==next.id&&item.code===next.code)){showToast("같은 계산식 코드가 이미 있습니다.");return;}onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"계산식 수정":"계산식 등록",next.name,next.expression);setDraft(empty);showToast("계산식을 저장했습니다.");};
-  return <ReferencePanel title="배출량 계산식" subtitle="산정 로직, 입·출력 단위와 적용 배출계수를 연결해 시설·활동자료에서 재사용합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.scope} · ${item.expression}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 계산식이 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"계산식 수정":"새 계산식"} description="표현식은 계산 근거로 기록되며 연결 계수와 단위를 함께 관리합니다."/><div className="form-grid"><label>계산식 코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} required/></label><label>계산식명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>Scope<select value={draft.scope} onChange={e=>patch({scope:e.target.value as Scope,factorId:""})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>연결 배출계수<select value={draft.factorId} onChange={e=>patch({factorId:e.target.value})}><option value="">계수 미지정</option>{factors.filter(item=>item.active&&item.scope===draft.scope).map(item=><option value={item.id} key={item.id}>{item.source} · {item.value} {item.factorUnit}</option>)}</select></label><label className="full-span">계산식 표현<input value={draft.expression} onChange={e=>patch({expression:e.target.value})} required/></label><label>입력 단위<input value={draft.activityUnit} onChange={e=>patch({activityUnit:e.target.value})}/></label><label>출력 단위<input value={draft.outputUnit} onChange={e=>patch({outputUnit:e.target.value})}/></label><label className="full-span textarea-label">산정 설명·가정<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="사용 중" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 계산식을 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("계산식을 삭제했습니다.");}}/></form></div></ReferencePanel>;
+  return <ReferencePanel title="배출량 산정식" subtitle="산정 로직, 변수, 입·출력 단위와 적용 배출계수를 연결해 조직·자산·Scope 3 수집에서 재사용합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.scope}${item.categoryCode?` · ${item.categoryCode}`:""} · ${item.expression}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 산정식이 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"산정식 수정":"새 산정식"} description="표현식·변수·계수·결과표시명을 함께 저장하면 수집 요청과 배출량 계산에 재사용됩니다."/><div className="form-grid"><label>산정식 코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} required/></label><label>산정식명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>Scope<select value={draft.scope} onChange={e=>patch({scope:e.target.value as Scope,factorId:"",categoryCode:""})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label>{draft.scope==="Scope 3"&&<label>관련 범주<select value={draft.categoryCode??""} onChange={e=>patch({categoryCode:e.target.value})}><option value="">전체 범주</option>{SCOPE3_CATEGORIES.map(item=><option value={item.code} key={item.code}>{item.code} · {item.name}</option>)}</select></label>}<label>연결 배출계수<select value={draft.factorId} onChange={e=>patch({factorId:e.target.value})}><option value="">계수 미지정</option>{factors.filter(item=>item.active&&item.scope===draft.scope).map(item=><option value={item.id} key={item.id}>{item.source} · {item.value} {item.factorUnit}</option>)}</select></label><label>결과 표시명<input value={draft.resultLabel??""} onChange={e=>patch({resultLabel:e.target.value})} placeholder="탄소배출량"/></label><label className="full-span">산정식 표현<input value={draft.expression} onChange={e=>patch({expression:e.target.value})} placeholder="활동량 × 배출계수 ÷ 1,000" required/></label><label className="full-span">입력 변수<input value={(draft.variableKeys??[]).join(", ")} onChange={e=>patch({variableKeys:e.target.value.split(",").map(item=>item.trim()).filter(Boolean)})} placeholder="활동량, 배출계수, 거리, 중량"/></label><label>입력 단위<input value={draft.activityUnit} onChange={e=>patch({activityUnit:e.target.value})}/></label><label>출력 단위<input value={draft.outputUnit} onChange={e=>patch({outputUnit:e.target.value})}/></label><label className="full-span textarea-label">산정 설명·가정<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="조직·자산·수집 화면에서 사용" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 산정식을 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("산정식을 삭제했습니다.");}}/></form></div></ReferencePanel>;
 }
 
 function ReferenceFactorManager({items,canManage,onChange,addAudit,showToast}:{items:EmissionFactor[];canManage:boolean;onChange:(x:EmissionFactor[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
@@ -1725,9 +2060,47 @@ function ReferenceFactorManager({items,canManage,onChange,addAudit,showToast}:{i
 
 function Scope3FieldManager({items,canManage,onChange,addAudit,showToast}:{items:Scope3FieldDefinition[];canManage:boolean;onChange:(x:Scope3FieldDefinition[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
   const [category,setCategory]=useState(SCOPE3_CATEGORIES[0]?.code??"Cat.1");const empty:Scope3FieldDefinition={id:"",categoryCode:category,fieldKey:"",nameKr:"",nameEn:"",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"",required:true,sortOrder:items.filter(item=>item.categoryCode===category).length+1,active:true};const [draft,setDraft]=useState<Scope3FieldDefinition>(empty);const current=items.filter(item=>item.categoryCode===category).sort((a,b)=>a.sortOrder-b.sortOrder);const patch=(p:Partial<Scope3FieldDefinition>)=>setDraft(value=>({...value,...p}));
-  const seed=()=>{if(!canManage)return;const base=[{fieldKey:"activity_name",nameKr:"활동자료명",nameEn:"Activity name",inputType:"TEXT" as const,dataType:"STRING" as const,unitGroup:"",required:true},{fieldKey:"activity_value",nameKr:"활동량",nameEn:"Activity value",inputType:"NUMBER" as const,dataType:"NUMBER" as const,unitGroup:"ACTIVITY",required:true},{fieldKey:"unit_code",nameKr:"단위",nameEn:"Unit",inputType:"UNIT_CODE" as const,dataType:"STRING" as const,unitGroup:"ACTIVITY",required:true},{fieldKey:"factor_value",nameKr:"적용 배출계수",nameEn:"Emission factor",inputType:"NUMBER" as const,dataType:"NUMBER" as const,unitGroup:"EMISSION_FACTOR",required:false},{fieldKey:"evidence_file",nameKr:"근거 증빙",nameEn:"Evidence",inputType:"FILE" as const,dataType:"STRING" as const,unitGroup:"",required:true}];const additions=SCOPE3_CATEGORIES.flatMap(cat=>base.filter(field=>!items.some(item=>item.categoryCode===cat.code&&item.fieldKey===field.fieldKey)).map((field,index)=>({...field,id:`S3F-${crypto.randomUUID()}`,categoryCode:cat.code,sortOrder:index+1,active:true})));onChange([...items,...additions]);addAudit("Scope 3 입력항목 생성","15개 범주",`${additions.length}개 기본 입력항목을 생성했습니다.`);showToast(additions.length?`15개 범주 기본 입력항목 ${additions.length}개를 생성했습니다.`:"기본 입력항목이 이미 구성되어 있습니다.");};
+  const seed=()=>{
+    if(!canManage)return;
+    const additions=SCOPE3_CATEGORIES.flatMap(cat=>{
+      const categoryFields=DEFAULT_SCOPE3_FIELD_BLUEPRINTS[cat.code]??[];
+      const blueprints:Scope3FieldBlueprint[]=[...categoryFields,{fieldKey:"factor_value",nameKr:"적용 배출계수",nameEn:"Emission factor",inputType:"NUMBER",dataType:"NUMBER",unitGroup:"EMISSION_FACTOR",required:false},{fieldKey:"evidence_file",nameKr:"근거 증빙",nameEn:"Evidence",inputType:"FILE",dataType:"STRING",unitGroup:"",required:true}];
+      return blueprints.filter(field=>!items.some(item=>item.categoryCode===cat.code&&item.fieldKey===field.fieldKey)).map((field,index)=>({...field,id:`S3F-${crypto.randomUUID()}`,categoryCode:cat.code,sortOrder:index+1,active:true}));
+    });
+    onChange([...items,...additions]);
+    addAudit("Scope 3 입력항목 생성","15개 범주",`${additions.length}개 범주별 표준 입력항목을 생성했습니다.`);
+    showToast(additions.length?`15개 범주별 표준 입력항목 ${additions.length}개를 생성했습니다.`:"범주별 표준 입력항목이 이미 구성되어 있습니다.");
+  };
   const save=(e:FormEvent)=>{e.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`S3F-${crypto.randomUUID()}`,categoryCode:category,fieldKey:draft.fieldKey.trim().toLowerCase().replace(/\s+/g,"_")};if(items.some(item=>item.id!==next.id&&item.categoryCode===category&&item.fieldKey===next.fieldKey)){showToast("이 범주에 같은 필드 키가 이미 있습니다.");return;}onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"Scope 3 필드 수정":"Scope 3 필드 등록",`${category} · ${next.nameKr}`,next.fieldKey);setDraft({...empty,categoryCode:category,sortOrder:current.length+2});showToast("Scope 3 입력항목을 저장했습니다.");};
   return <ReferencePanel title="Scope 3 범주별 입력항목" subtitle="15개 범주마다 입력 유형·데이터 유형·단위그룹·필수 여부·표시 순서를 정의합니다." action={<button className="primary-button compact" disabled={!canManage} onClick={seed}><Icon name="plus" size={14}/>15개 범주 기본필드 생성</button>}><div className="scope3-reference-layout"><div className="scope3-category-nav">{SCOPE3_CATEGORIES.map(item=><button key={item.code} className={category===item.code?"active":""} onClick={()=>{setCategory(item.code);setDraft({...empty,categoryCode:item.code,sortOrder:items.filter(field=>field.categoryCode===item.code).length+1})}}><span>{item.code}</span><strong>{item.name}</strong><em>{items.filter(field=>field.categoryCode===item.code).length}</em></button>)}</div><div className="scope3-fields"><div className="reference-list-head"><div><strong>{category} 입력항목</strong><span>{SCOPE3_CATEGORIES.find(item=>item.code===category)?.method}</span></div><button className="outline-small" disabled={!canManage} onClick={()=>setDraft({...empty,categoryCode:category,sortOrder:current.length+1})}><Icon name="plus" size={14}/>필드 추가</button></div>{current.map(item=><button className={`scope3-field-row ${draft.id===item.id?"active":""}`} key={item.id} onClick={()=>setDraft(item)}><span>{item.sortOrder}</span><div><strong>{item.nameKr}</strong><small>{item.fieldKey} · {item.inputType} · {item.unitGroup||"단위 없음"}</small></div>{item.required&&<em>필수</em>}</button>)}{!current.length&&<ReferenceEmpty icon="list" title="이 범주의 입력항목이 없습니다." description="기본필드를 생성하거나 새 필드를 추가해 주세요."/>}</div><form className="reference-form scope3-field-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"입력항목 수정":"새 입력항목"} description={`${category} 수집 화면에 표시될 필드를 정의합니다.`}/><div className="form-grid"><label>필드 키<input value={draft.fieldKey} onChange={e=>patch({fieldKey:e.target.value})} required/></label><label>표시 순서<input type="number" min="1" value={draft.sortOrder} onChange={e=>patch({sortOrder:Number(e.target.value)})}/></label><label>국문명<input value={draft.nameKr} onChange={e=>patch({nameKr:e.target.value})} required/></label><label>영문명<input value={draft.nameEn} onChange={e=>patch({nameEn:e.target.value})}/></label><label>입력 유형<select value={draft.inputType} onChange={e=>patch({inputType:e.target.value as Scope3FieldDefinition["inputType"]})}><option>TEXT</option><option>NUMBER</option><option>SELECT</option><option>DATE</option><option>UNIT_CODE</option><option>FILE</option></select></label><label>데이터 유형<select value={draft.dataType} onChange={e=>patch({dataType:e.target.value as Scope3FieldDefinition["dataType"]})}><option>STRING</option><option>NUMBER</option><option>DATE</option></select></label><label className="full-span">단위 그룹<input value={draft.unitGroup} onChange={e=>patch({unitGroup:e.target.value})} placeholder="ACTIVITY, CURRENCY, DISTANCE 등"/></label></div><Toggle label="필수 입력" checked={draft.required} onChange={required=>patch({required})}/><Toggle label="사용 중" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 입력항목을 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft({...empty,categoryCode:category});showToast("입력항목을 삭제했습니다.");}}/></form></div></ReferencePanel>;
+}
+
+function SupplierManager({items,canManage,onChange,addAudit,showToast}:{items:SupplierMaster[];canManage:boolean;onChange:(x:SupplierMaster[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
+  const empty:SupplierMaster={id:"",code:"",name:"",region:"국내",category:"제조사-일반",tier:"tier1",country:"대한민국",email:"",owner:"",active:true,updatedAt:""};
+  const [draft,setDraft]=useState(empty);const patch=(p:Partial<SupplierMaster>)=>setDraft(value=>({...value,...p}));
+  const save=(event:FormEvent)=>{event.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`SUP-${crypto.randomUUID()}`,code:draft.code.trim().toUpperCase(),updatedAt:nowLabel()};if(items.some(item=>item.id!==next.id&&item.code===next.code)){showToast("같은 공급사 코드가 이미 있습니다.");return;}onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"공급사 수정":"공급사 등록",next.name,`${next.category} · ${next.tier}`);setDraft(empty);showToast("공급사 기준정보를 저장했습니다.");};
+  return <ReferencePanel title="공급사 마스터" subtitle="Scope 3 데이터 수집과 공급망 진단에 사용할 회사 분류·Tier·연락처·담당자를 관리합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.category} · ${item.tier} · ${item.region}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 공급사가 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"공급사 수정":"새 공급사"} description="등록된 공급사는 Scope 3 수집 요청과 공급망 진단 대상에서 바로 선택할 수 있습니다."/><div className="form-grid"><label>공급사 코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} required/></label><label>회사명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>국내·해외<select value={draft.region} onChange={e=>patch({region:e.target.value as SupplierMaster["region"]})}><option>국내</option><option>해외</option></select></label><label>국가<input value={draft.country} onChange={e=>patch({country:e.target.value})}/></label><label>공급망 분류<select value={draft.category} onChange={e=>patch({category:e.target.value as SupplierMaster["category"]})}><option>제조사-일반</option><option>제조사-특수</option><option>운송사</option><option>물류사</option><option>원자재사</option><option>기타</option></select></label><label>Tier<select value={draft.tier} onChange={e=>patch({tier:e.target.value as SupplierMaster["tier"]})}><option>tier1</option><option>tier2</option><option>tier3</option><option>tier4</option><option>해당없음</option></select></label><label>대표 이메일<input type="email" value={draft.email} onChange={e=>patch({email:e.target.value})}/></label><label>내부 담당자<input value={draft.owner} onChange={e=>patch({owner:e.target.value})}/></label></div><Toggle label="Scope 3 수집·진단에 사용" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 공급사를 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("공급사 기준정보를 삭제했습니다.");}}/></form></div></ReferencePanel>;
+}
+
+function ProductMaterialManager({items,suppliers,canManage,onChange,addAudit,showToast}:{items:ProductMaterialMaster[];suppliers:SupplierMaster[];canManage:boolean;onChange:(x:ProductMaterialMaster[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
+  const empty:ProductMaterialMaster={id:"",code:"",name:"",type:"원자재",supplierId:"",unit:"kg",description:"",active:true,updatedAt:""};
+  const [draft,setDraft]=useState(empty);const patch=(p:Partial<ProductMaterialMaster>)=>setDraft(value=>({...value,...p}));
+  const save=(event:FormEvent)=>{event.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`MAT-${crypto.randomUUID()}`,code:draft.code.trim().toUpperCase(),updatedAt:nowLabel()};onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"자재 수정":"자재 등록",next.name,`${next.type} · ${next.unit}`);setDraft(empty);showToast("자재·제품 기준정보를 저장했습니다.");};
+  return <ReferencePanel title="자재·제품 마스터" subtitle="구매한 재화·서비스, 자본재, 판매제품 산정에 사용할 자재코드·유형·공급사·단위를 관리합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.type} · ${item.unit} · ${suppliers.find(s=>s.id===item.supplierId)?.name??"공급사 미연결"}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 자재·제품이 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"자재·제품 수정":"새 자재·제품"} description="공급사와 연결하면 Scope 3 요청 대상 및 원재료별 배출계수 관리에 재사용됩니다."/><div className="form-grid"><label>자재코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} required/></label><label>자재명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>유형<select value={draft.type} onChange={e=>patch({type:e.target.value as ProductMaterialMaster["type"]})}><option>완제품</option><option>반제품</option><option>원자재</option><option>반자재</option><option>상품</option></select></label><label>기준 단위<input value={draft.unit} onChange={e=>patch({unit:e.target.value})} required/></label><label className="full-span">공급사<select value={draft.supplierId} onChange={e=>patch({supplierId:e.target.value})}><option value="">공급사 미연결</option>{suppliers.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.code} · {item.name}</option>)}</select></label><label className="full-span textarea-label">설명<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="Scope 3 산정에 사용" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 자재·제품을 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("자재·제품 기준정보를 삭제했습니다.");}}/></form></div></ReferencePanel>;
+}
+
+function TransportRouteManager({items,canManage,onChange,addAudit,showToast}:{items:TransportRoute[];canManage:boolean;onChange:(x:TransportRoute[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
+  const empty:TransportRoute={id:"",code:"",name:"",mode:"도로",vehicle:"",origin:"",destination:"",distance:0,distanceUnit:"km",calculationType:"자동계산",description:"",active:true,updatedAt:""};
+  const [draft,setDraft]=useState(empty);const patch=(p:Partial<TransportRoute>)=>setDraft(value=>({...value,...p}));
+  const save=(event:FormEvent)=>{event.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`ROUTE-${crypto.randomUUID()}`,code:draft.code.trim().toUpperCase(),updatedAt:nowLabel()};onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"이동거리 수정":"이동거리 등록",next.name,`${next.origin} → ${next.destination} · ${next.distance}${next.distanceUnit}`);setDraft(empty);showToast("이동거리 기준정보를 저장했습니다.");};
+  return <ReferencePanel title="이동거리 마스터" subtitle="상·하류 운송·출장·통근 산정에 사용할 출발지·도착지·운송방식·거리 기준을 관리합니다."><div className="reference-split"><ReferenceTableList items={items} selectedId={draft.id} onSelect={setDraft} primary={item=>`${item.code} · ${item.name}`} secondary={item=>`${item.mode} · ${item.origin} → ${item.destination} · ${item.distance}${item.distanceUnit}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 이동거리가 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"이동거리 수정":"새 이동거리"} description="운송구간을 코드화하면 Scope 3 데이터 요청과 운송 산정에서 반복 사용할 수 있습니다."/><div className="form-grid"><label>이동거리 코드<input value={draft.code} onChange={e=>patch({code:e.target.value})} placeholder="KRPUS/KRICN" required/></label><label>코드명<input value={draft.name} onChange={e=>patch({name:e.target.value})} required/></label><label>운송방식<select value={draft.mode} onChange={e=>patch({mode:e.target.value as TransportRoute["mode"]})}><option>도로</option><option>철도</option><option>해상</option><option>항공</option></select></label><label>운송수단<input value={draft.vehicle} onChange={e=>patch({vehicle:e.target.value})} placeholder="화물차, 컨테이너선 등"/></label><label>출발지<input value={draft.origin} onChange={e=>patch({origin:e.target.value})} required/></label><label>도착지<input value={draft.destination} onChange={e=>patch({destination:e.target.value})} required/></label><label>이동거리<input type="number" min="0" step="any" value={draft.distance||""} onChange={e=>patch({distance:Number(e.target.value)})}/></label><label>거리 단위<select value={draft.distanceUnit} onChange={e=>patch({distanceUnit:e.target.value as TransportRoute["distanceUnit"]})}><option value="km">km</option><option value="mile">mile</option></select></label><label>산정 방식<select value={draft.calculationType} onChange={e=>patch({calculationType:e.target.value as TransportRoute["calculationType"]})}><option>자동계산</option><option>직접입력</option></select></label><label className="full-span textarea-label">설명·출처<textarea value={draft.description} onChange={e=>patch({description:e.target.value})}/></label></div><Toggle label="Scope 3 산정에 사용" checked={draft.active} onChange={active=>patch({active})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 이동거리 기준을 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("이동거리 기준정보를 삭제했습니다.");}}/></form></div></ReferencePanel>;
+}
+
+function DisclosureMappingManager({items,standards,regulations,indicators,canManage,onChange,addAudit,showToast}:{items:DisclosureMapping[];standards:DisclosureStandard[];regulations:ComplianceRegulation[];indicators:Indicator[];canManage:boolean;onChange:(x:DisclosureMapping[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
+  const empty:DisclosureMapping={id:"",indicatorCode:"",standardId:"",standardItemCode:"",regulationIds:[],evidenceRequired:true,owner:"",status:"미연결",updatedAt:""};
+  const [draft,setDraft]=useState(empty);const patch=(p:Partial<DisclosureMapping>)=>setDraft(value=>({...value,...p}));const selectedStandard=standards.find(item=>item.id===draft.standardId);const toggle=(values:string[],value:string)=>values.includes(value)?values.filter(item=>item!==value):[...values,value];
+  const save=(event:FormEvent)=>{event.preventDefault();if(!canManage)return;const next={...draft,id:draft.id||`MAP-${crypto.randomUUID()}`,status:(draft.indicatorCode&&draft.standardId&&draft.standardItemCode?"연결완료":"검토 필요") as DisclosureMapping["status"],updatedAt:nowLabel()};onChange(items.some(item=>item.id===next.id)?items.map(item=>item.id===next.id?next:item):[...items,next]);addAudit(draft.id?"공시 연결 수정":"공시 연결 등록",next.indicatorCode,`${selectedStandard?.code??""} ${next.standardItemCode}`);setDraft(empty);showToast("정량지표·보고기준 연결을 저장했습니다.");};
+  return <ReferencePanel title="정량지표 × 보고기준 연결" subtitle="정량지표를 보고기준의 세부 항목과 규제·증빙 요구에 연결해 보고서 대응표로 재사용합니다."><div className="mapping-summary"><div><span>전체 지표</span><strong>{indicators.length}</strong></div><div><span>연결완료</span><strong>{items.filter(item=>item.status==="연결완료").length}</strong></div><div><span>검토 필요</span><strong>{items.filter(item=>item.status!=="연결완료").length}</strong></div><div><span>보고기준 항목</span><strong>{standards.reduce((sum,item)=>sum+item.items.length,0)}</strong></div></div><div className="reference-split"><ReferenceTableList items={items.map(item=>({...item,active:item.status==="연결완료"}))} selectedId={draft.id} onSelect={item=>setDraft(items.find(row=>row.id===item.id)??empty)} primary={item=>`${item.indicatorCode||"지표 미선택"} · ${standards.find(std=>std.id===item.standardId)?.code??"기준 미선택"}`} secondary={item=>`${item.standardItemCode||"항목 미선택"} · ${item.owner||"담당자 미지정"}`} onNew={()=>setDraft(empty)} canManage={canManage} emptyTitle="등록된 공시 연결이 없습니다."/><form className="reference-form" onSubmit={save}><ReferenceFormTitle title={draft.id?"연결정보 수정":"새 연결"} description="지표 하나를 여러 기준에 대응하려면 연결정보를 각각 추가해 주세요."/><div className="form-grid"><label className="full-span">정량지표<select value={draft.indicatorCode} onChange={e=>patch({indicatorCode:e.target.value})} required><option value="">지표 선택</option>{indicators.map(item=><option value={item.code} key={item.id}>{item.code} · {item.name}</option>)}</select></label><label>보고기준<select value={draft.standardId} onChange={e=>patch({standardId:e.target.value,standardItemCode:""})} required><option value="">기준 선택</option>{standards.filter(item=>item.active).map(item=><option value={item.id} key={item.id}>{item.code} · {item.title} ({item.version})</option>)}</select></label><label>세부 항목<select value={draft.standardItemCode} onChange={e=>patch({standardItemCode:e.target.value})} required><option value="">항목 선택</option>{(selectedStandard?.items??[]).filter(item=>item.active).map(item=><option value={item.code} key={item.id}>{item.code} · {item.title}</option>)}</select></label><label>내부 담당자<input value={draft.owner} onChange={e=>patch({owner:e.target.value})}/></label></div><div className="reference-links single-links"><div><strong>연결 규제·평가기준</strong>{regulations.filter(item=>item.active).map(item=><label key={item.id}><input type="checkbox" checked={draft.regulationIds.includes(item.id)} onChange={()=>patch({regulationIds:toggle(draft.regulationIds,item.id)})}/><span>{item.title}</span></label>)}{!regulations.length&&<p>등록된 규제가 없습니다.</p>}</div></div><Toggle label="증빙 필수" description="정량데이터 확정 시 근거자료 연결 여부를 확인합니다." checked={draft.evidenceRequired} onChange={evidenceRequired=>patch({evidenceRequired})}/><ReferenceFormActions canManage={canManage} editing={Boolean(draft.id)} onDelete={()=>{if(!draft.id||!window.confirm("이 공시 연결을 삭제하시겠습니까?"))return;onChange(items.filter(item=>item.id!==draft.id));setDraft(empty);showToast("공시 연결을 삭제했습니다.");}}/></form></div></ReferencePanel>;
 }
 
 function StandardManager({items,canManage,onChange,addAudit,showToast}:{items:DisclosureStandard[];canManage:boolean;onChange:(x:DisclosureStandard[])=>void;addAudit:(a:string,t:string,d:string)=>void;showToast:(m:string)=>void}){
@@ -1813,11 +2186,11 @@ function DataSettings({onExport,onRestore,showToast}:{onExport:()=>void;onRestor
 function Toggle({label,description,checked,onChange}:{label:string;description?:string;checked:boolean;onChange:(v:boolean)=>void}){return <label className="toggle-row"><div><strong>{label}</strong>{description&&<p>{description}</p>}</div><input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)}/><span/></label>}
 function SettingsFooter({onSave}:{onSave:()=>void}){return <div className="settings-footer"><span>변경 내용은 로그인 계정의 권한 범위에 따라 Supabase 서버에 저장됩니다.</span><button className="primary-button" onClick={onSave}>변경사항 저장</button></div>}
 function FactorForm({factor,onClose,onSave,onDelete}:{factor:EmissionFactor|null;onClose:()=>void;onSave:(f:EmissionFactor)=>void;onDelete?:()=>void}){
-  const [form,setForm]=useState<EmissionFactor>(factor??{id:"NEW-FACTOR",scope:"Scope 1",category:"",source:"",value:0,activityUnit:"L",factorUnit:"kgCO₂e/L",year:String(new Date().getFullYear()),authority:"",active:true,factorType:"공식계수",method:"활동량 × 배출계수",reference:"",referenceUrl:"",notes:""});
+  const [form,setForm]=useState<EmissionFactor>(factor??{id:"NEW-FACTOR",scope:"Scope 1",category:"",source:"",value:0,activityUnit:"L",factorUnit:"kgCO₂e/L",year:String(new Date().getFullYear()),authority:"",active:true,factorType:"공식계수",method:"활동량 × 배출계수",reference:"",referenceUrl:"",notes:"",indicatorKind:"배출계수",detailCategory:"",country:"대한민국",validFrom:"",validTo:""});
   const patch=(p:Partial<EmissionFactor>)=>setForm(c=>({...c,...p}));
   return <Overlay title={factor?"배출계수·산정기준 수정":"배출계수 추가"} eyebrow="EMISSION FACTOR" description="계수값과 함께 적용 범위·산식·근거문서를 기록합니다." onClose={onClose}><form onSubmit={e=>{e.preventDefault();onSave(form)}}>
-    <div className="form-section"><h3><span>1</span>계수 기본정보</h3><div className="form-grid"><label>Scope<select value={form.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>계수 유형<select value={form.factorType??"공식계수"} onChange={e=>patch({factorType:e.target.value as EmissionFactor["factorType"]})}><option>공식계수</option><option>공급자계수</option><option>참고계수</option></select></label><label>활동자료 구분<input value={form.category} onChange={e=>patch({category:e.target.value})} required/></label><label>배출원<input value={form.source} onChange={e=>patch({source:e.target.value})} required/></label><label>활동자료 단위<input value={form.activityUnit} onChange={e=>patch({activityUnit:e.target.value,factorUnit:`kgCO₂e/${e.target.value}`})} required/></label><label>배출계수<input type="number" min="0" step="any" value={form.value||""} onChange={e=>patch({value:Number(e.target.value)})} required/></label><label>계수 단위<input value={form.factorUnit} onChange={e=>patch({factorUnit:e.target.value})} required/></label><label>적용 연도<input value={form.year} onChange={e=>patch({year:e.target.value})} required/></label></div></div>
-    <div className="form-section"><h3><span>2</span>산정방법·기준정보</h3><div className="form-grid"><label className="full-span">산정방법<input value={form.method??""} onChange={e=>patch({method:e.target.value})} placeholder="예: 활동량 × 순발열량 × 탄소배출계수 × 44/12" required/></label><label>기관·출처<input value={form.authority} onChange={e=>patch({authority:e.target.value})} required/></label><label>근거문서<input value={form.reference??""} onChange={e=>patch({reference:e.target.value})} placeholder="지침·공급자 명세서·EPD 등"/></label><label className="full-span">기준 원문 URL<input type="url" value={form.referenceUrl??""} onChange={e=>patch({referenceUrl:e.target.value})} placeholder="https://"/></label><label className="full-span textarea-label">적용 범위·주의사항<textarea value={form.notes??""} onChange={e=>patch({notes:e.target.value})} placeholder="적용할 활동자료 단위, 조직경계, 연도, 추정 가정 등을 기록해 주세요."/></label><Toggle label="활동자료 입력 시 사용" checked={form.active} onChange={v=>patch({active:v})}/></div></div>
+    <div className="form-section"><h3><span>1</span>계수 기본정보</h3><div className="form-grid"><label>Scope<select value={form.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>지표 구분<select value={form.indicatorKind??"배출계수"} onChange={e=>patch({indicatorKind:e.target.value as EmissionFactor["indicatorKind"]})}><option>열량계수</option><option>지구온난화지수</option><option>산화계수</option><option>배출계수</option></select></label><label>계수 유형<select value={form.factorType??"공식계수"} onChange={e=>patch({factorType:e.target.value as EmissionFactor["factorType"]})}><option>공식계수</option><option>공급자계수</option><option>참고계수</option></select></label><label>활동자료 구분<input value={form.category} onChange={e=>patch({category:e.target.value})} required/></label><label>상세분류<input value={form.detailCategory??""} onChange={e=>patch({detailCategory:e.target.value})} placeholder="연료·온실가스·운송수단 등"/></label><label>배출원·계수명<input value={form.source} onChange={e=>patch({source:e.target.value})} required/></label><label>활동자료 단위<input value={form.activityUnit} onChange={e=>patch({activityUnit:e.target.value,factorUnit:`kgCO₂e/${e.target.value}`})} required/></label><label>계수값<input type="number" min="0" step="any" value={form.value||""} onChange={e=>patch({value:Number(e.target.value)})} required/></label><label>계수 단위<input value={form.factorUnit} onChange={e=>patch({factorUnit:e.target.value})} required/></label><label>기준국가<input value={form.country??""} onChange={e=>patch({country:e.target.value})}/></label><label>적용 연도<input value={form.year} onChange={e=>patch({year:e.target.value})} required/></label></div></div>
+    <div className="form-section"><h3><span>2</span>산정방법·기준정보</h3><div className="form-grid"><label className="full-span">산정방법<input value={form.method??""} onChange={e=>patch({method:e.target.value})} placeholder="예: 활동량 × 순발열량 × 탄소배출계수 × 44/12" required/></label><label>적용 시작일<input type="date" value={form.validFrom??""} onChange={e=>patch({validFrom:e.target.value})}/></label><label>적용 종료일<input type="date" value={form.validTo??""} onChange={e=>patch({validTo:e.target.value})}/></label><label>기관·출처<input value={form.authority} onChange={e=>patch({authority:e.target.value})} required/></label><label>근거문서<input value={form.reference??""} onChange={e=>patch({reference:e.target.value})} placeholder="지침·공급자 명세서·EPD 등"/></label><label className="full-span">기준 원문 URL<input type="url" value={form.referenceUrl??""} onChange={e=>patch({referenceUrl:e.target.value})} placeholder="https://"/></label><label className="full-span textarea-label">적용 범위·주의사항<textarea value={form.notes??""} onChange={e=>patch({notes:e.target.value})} placeholder="적용할 활동자료 단위, 조직경계, 연도, 추정 가정 등을 기록해 주세요."/></label><Toggle label="활동자료 입력 시 사용" checked={form.active} onChange={v=>patch({active:v})}/></div></div>
     <div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>계수 저장</button></div></div>
   </form></Overlay>;
 }
