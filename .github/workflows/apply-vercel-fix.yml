@@ -1,4 +1,4 @@
-name: Apply Vercel typecheck fix
+name: Apply Vercel source repair
 
 on:
   push:
@@ -16,24 +16,53 @@ jobs:
         with:
           ref: diagnostics/sites-latest-validation
           fetch-depth: 0
-      - name: Patch report loading typecheck
+      - name: Restore active components and comment boundary
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import subprocess
+
           path = Path("app/page.tsx")
           text = path.read_text(encoding="utf-8")
-          old = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(normalizeReportDefaults(JSON.parse(savedReports) as SustainabilityReport[]));'
-          new = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(JSON.parse(savedReports) as SustainabilityReport[]);'
-          if old not in text and new not in text:
-              raise SystemExit("report loading marker not found")
-          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          old_report = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(normalizeReportDefaults(JSON.parse(savedReports) as SustainabilityReport[]));'
+          new_report = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(JSON.parse(savedReports) as SustainabilityReport[]);'
+          text = text.replace(old_report, new_report, 1)
+
+          plan_pos = text.index("function PlanForm(")
+          legacy_start = text.index("\n/*\nfunction Evidence(", plan_pos)
+          indicator_marker = "function IndicatorForm({item,onClose,onSave,onDelete}"
+          indicator_pos = text.index(indicator_marker, legacy_start)
+          active_evidence_marker = "function Evidence({items,onChange,showToast}"
+
+          segment = text[legacy_start:indicator_pos]
+          if "\n*/\n\n" + active_evidence_marker not in segment:
+              historical = subprocess.check_output(
+                  ["git", "show", "668f094c469334c52d4e1895b86934543b4cc582:app/page.tsx"],
+                  text=True,
+              )
+              historical_plan = historical.index("function PlanForm(")
+              historical_close = historical.index("\n*/", historical_plan)
+              historical_evidence = historical.index(active_evidence_marker, historical_close)
+              historical_indicator = historical.index(indicator_marker, historical_evidence)
+              restored = historical[historical_evidence:historical_indicator].rstrip()
+
+              text = text[:indicator_pos] + "*/\n\n" + restored + "\n\n" + text[indicator_pos:]
+              indicator_pos = text.index(indicator_marker, legacy_start)
+              trailing_close = text.find("\n*/", indicator_pos)
+              if trailing_close < 0:
+                  raise SystemExit("trailing legacy comment close not found")
+              text = text[:trailing_close] + text[trailing_close + 3:]
+
+          path.write_text(text, encoding="utf-8")
           PY
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/page.tsx
           if git diff --cached --quiet; then
-            echo "No patch needed."
+            echo "No source repair needed."
           else
-            git commit -m "Fix Vercel report loading typecheck"
+            git commit -m "Restore active SEMS2 components for Vercel build"
             git push origin HEAD:diagnostics/sites-latest-validation
           fi
