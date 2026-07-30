@@ -24,6 +24,13 @@ type WorkspacePayload = {
   scope3Fields: unknown[];
   disclosureStandards: unknown[];
   regulations: unknown[];
+  suppliers: unknown[];
+  productMaterials: unknown[];
+  transportRoutes: unknown[];
+  disclosureMappings: unknown[];
+  scope3Requests: unknown[];
+  diagnosticTemplates: unknown[];
+  supplyChainAssessments: unknown[];
   evidence: unknown[];
   indicators: unknown[];
   metricRequests: unknown[];
@@ -47,6 +54,13 @@ const EMPTY_WORKSPACE: WorkspacePayload = {
   scope3Fields: [],
   disclosureStandards: [],
   regulations: [],
+  suppliers: [],
+  productMaterials: [],
+  transportRoutes: [],
+  disclosureMappings: [],
+  scope3Requests: [],
+  diagnosticTemplates: [],
+  supplyChainAssessments: [],
   evidence: [],
   indicators: [],
   metricRequests: [],
@@ -80,6 +94,13 @@ const STORAGE_KEYS: Record<keyof WorkspacePayload, string> = {
   scope3Fields: "sems2-scope3-fields",
   disclosureStandards: "sems2-disclosure-standards",
   regulations: "sems2-regulations",
+  suppliers: "sems2-suppliers",
+  productMaterials: "sems2-product-materials",
+  transportRoutes: "sems2-transport-routes",
+  disclosureMappings: "sems2-disclosure-mappings",
+  scope3Requests: "sems2-scope3-requests",
+  diagnosticTemplates: "sems2-diagnostic-templates",
+  supplyChainAssessments: "sems2-supply-chain-assessments",
   evidence: "sems2-evidence",
   indicators: "sems2-indicators",
   metricRequests: "sems2-metric-requests",
@@ -105,6 +126,13 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
     scope3Fields: Array.isArray(payload.scope3Fields) ? payload.scope3Fields : [],
     disclosureStandards: Array.isArray(payload.disclosureStandards) ? payload.disclosureStandards : [],
     regulations: Array.isArray(payload.regulations) ? payload.regulations : [],
+    suppliers: Array.isArray(payload.suppliers) ? payload.suppliers : [],
+    productMaterials: Array.isArray(payload.productMaterials) ? payload.productMaterials : [],
+    transportRoutes: Array.isArray(payload.transportRoutes) ? payload.transportRoutes : [],
+    disclosureMappings: Array.isArray(payload.disclosureMappings) ? payload.disclosureMappings : [],
+    scope3Requests: Array.isArray(payload.scope3Requests) ? payload.scope3Requests : [],
+    diagnosticTemplates: Array.isArray(payload.diagnosticTemplates) ? payload.diagnosticTemplates : [],
+    supplyChainAssessments: Array.isArray(payload.supplyChainAssessments) ? payload.supplyChainAssessments : [],
     evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
     indicators: Array.isArray(payload.indicators) ? payload.indicators : [],
     metricRequests: Array.isArray(payload.metricRequests) ? payload.metricRequests : [],
