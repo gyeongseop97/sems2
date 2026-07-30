@@ -1,0 +1,39 @@
+name: Apply Vercel typecheck fix
+
+on:
+  push:
+    paths:
+      - ".github/workflows/apply-vercel-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostics/sites-latest-validation
+          fetch-depth: 0
+      - name: Patch report loading typecheck
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("app/page.tsx")
+          text = path.read_text(encoding="utf-8")
+          old = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(normalizeReportDefaults(JSON.parse(savedReports) as SustainabilityReport[]));'
+          new = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(JSON.parse(savedReports) as SustainabilityReport[]);'
+          if old not in text and new not in text:
+              raise SystemExit("report loading marker not found")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/page.tsx
+          if git diff --cached --quiet; then
+            echo "No patch needed."
+          else
+            git commit -m "Fix Vercel report loading typecheck"
+            git push origin HEAD:diagnostics/sites-latest-validation
+          fi
