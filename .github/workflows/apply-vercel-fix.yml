@@ -1,6 +1,7 @@
 name: Validate Vercel build
 
 on:
+  pull_request:
   push:
     paths:
       - ".github/workflows/apply-vercel-fix.yml"
@@ -13,8 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: diagnostics/sites-latest-validation
       - uses: actions/setup-node@v4
         with:
           node-version: "22.13.0"
