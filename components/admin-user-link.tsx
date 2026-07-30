@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -26,7 +27,7 @@ export default function AdminUserLink() {
   if (!visible) return null;
 
   return (
-    <a
+    <Link
       href="/admin/users"
       style={{
         position: "fixed",
@@ -48,6 +49,6 @@ export default function AdminUserLink() {
       }}
     >
       사용자 관리
-    </a>
+    </Link>
   );
 }

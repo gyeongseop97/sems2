@@ -31,6 +31,23 @@ test("renders development preview metadata", async () => {
     /^text\/html\b/i,
   );
   assert.match(await response.text(), developmentPreviewMeta);
+
+  const reportResponse = await worker.fetch(
+    new Request("http://localhost/reports", {
+      headers: { accept: "text/html" },
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+  assert.equal(reportResponse.status, 200);
+  assert.match(await reportResponse.text(), developmentPreviewMeta);
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
@@ -54,12 +71,28 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /데이터 표/);
   assert.match(page, /이미지 교체/);
   assert.match(page, /ReportDataChart/);
+  assert.match(page, /createPageTitleBlock/);
+  assert.match(page, /pageTitle:true/);
+  assert.match(page, /selectedIndex\+1/);
+  assert.match(page, /onPageReorder/);
+  assert.match(page, /draggable=\{canManage\}/);
+  assert.match(page, /드래그해서 페이지 순서 변경/);
+  assert.match(page, /fontSize:26/);
+  assert.match(page, /const VIEW_PATHS: Record<View, string>/);
+  assert.match(page, /reports: "\/reports"/);
+  assert.match(page, /router\.push\(VIEW_PATHS\[view\]\)/);
+  assert.match(page, /viewFromPathname\(pathname\)/);
+  assert.match(page, /aria-current=\{active\?"page":undefined\}/);
   assert.match(factorLibrary, /EF-S1-WELDING-CO2/);
   assert.match(factorLibrary, /EF-S2-ELECTRICITY-2023/);
   assert.match(factorLibrary, /Cat\.15/);
   assert.match(page, /"예정" \| "수집중" \| "검토중" \| "마감" \| "잠금"/);
   assert.match(page, /title="변경 이력"/);
   assert.match(styles, /body \{ font-size: 16px; line-height: 1\.58; \}/);
+  assert.match(styles, /\.report-page-drag \{/);
+  assert.match(styles, /\.report-page-item\.drag-before::before/);
+  assert.match(styles, /max-width: 1780px/);
+  assert.match(styles, /width: min\(1180px,calc\(100vw - 310px\)\)/);
   assert.match(styles, /\.plan-status-preview p \{ font-size: 13px;/);
   assert.match(styles, /\.data-table td \{ height: 78px;/);
 });
