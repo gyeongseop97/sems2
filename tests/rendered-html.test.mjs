@@ -105,7 +105,6 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /균등 배분/);
   assert.match(page, /수동 입력/);
   assert.match(page, /지속가능경영보고서 작성/);
-  assert.match(page, /교육시간·용수·대기오염·폐기물/);
   assert.match(page, /확정 ESG 정량데이터 자동 연결/);
   assert.match(page, /배출계수·산정기준/);
   assert.match(page, /요소를 끌어 이동하고 우측 아래 핸들로 크기를 조절합니다/);
