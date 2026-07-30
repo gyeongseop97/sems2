@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - ".github/workflows/apply-sites-latest.yml"
+  pull_request:
 
 permissions:
   contents: write
@@ -24,7 +25,7 @@ jobs:
           node-version: "22.13.0"
           cache: npm
 
-      - name: Apply and commit latest Sites changes
+      - name: Apply latest Sites changes and normalize source
         shell: bash
         run: |
           set +e
@@ -36,9 +37,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           if [ "$PATCH_EXIT" -ne 0 ]; then
-            git add sites-sync.log
-            git commit -m "Record Sites sync failure"
-            git push
+            if [ "${{ github.event_name }}" = "push" ]; then
+              git add sites-sync.log
+              git commit -m "Record Sites sync failure"
+              git push
+            fi
             cat sites-sync.log
             exit "$PATCH_EXIT"
           fi
@@ -65,9 +68,13 @@ jobs:
           git add -A -- app/page.tsx app/globals.css tests/rendered-html.test.mjs sites-validation.log
           if git diff --cached --quiet; then
             echo "No source changes to commit."
-          else
+          elif [ "${{ github.event_name }}" = "push" ]; then
             git commit -m "Sync latest Sites version"
             git push
+          else
+            echo "PR validation found uncommitted synchronization differences:"
+            git diff --cached
+            exit 1
           fi
 
       - name: Install dependencies
@@ -84,12 +91,14 @@ jobs:
           TEST_EXIT=$?
           set -e
 
+          cat sites-validation.log
           if [ "$TEST_EXIT" -ne 0 ]; then
-            git pull --rebase
-            git add sites-validation.log
-            git commit -m "Record Sites validation failure"
-            git push
-            cat sites-validation.log
+            if [ "${{ github.event_name }}" = "push" ]; then
+              git pull --rebase
+              git add sites-validation.log
+              git commit -m "Record Sites validation failure"
+              git push
+            fi
             exit "$TEST_EXIT"
           fi
 
