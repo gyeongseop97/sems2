@@ -678,7 +678,7 @@ const DEFAULT_MASTER_INDICATORS:Indicator[] = COMPLILAW_QUANTITATIVE_INDICATORS.
 
 const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "dashboard", label: "대시보드", icon: "dashboard" },
-  { id: "collection", label: "온실가스 데이터 수집", icon: "database" },
+  { id: "collection", label: "데이터 수집·입력", icon: "database" },
   { id: "review", label: "온실가스 검토·승인", icon: "check" },
   { id: "quality", label: "온실가스 데이터 품질", icon: "alert" },
   { id: "inventory", label: "온실가스 인벤토리", icon: "leaf" },
@@ -686,7 +686,7 @@ const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "scope3", label: "Scope 3·공급망", icon: "building" },
   { id: "evidence", label: "증빙자료", icon: "file" },
   { id: "indicators", label: "ESG 지표 관리", icon: "list" },
-  { id: "metric-collection", label: "ESG 정량데이터 수집", icon: "database" },
+  { id: "metric-collection", label: "데이터 수집·입력", icon: "database" },
   { id: "reports", label: "지속가능경영보고서", icon: "edit" },
   { id: "reference", label: "기준정보·규제 관리", icon: "settings" },
   { id: "audit", label: "변경 이력", icon: "clock" },
@@ -694,7 +694,7 @@ const navItems: { id: View; label: string; icon: IconName }[] = [
 
 const NAV_GROUPS:{label:string;items:View[]}[]=[
   {label:"현황",items:["dashboard"]},
-  {label:"온실가스 관리",items:["inventory","collection","review","quality","targets"]},
+  {label:"온실가스 관리",items:["inventory","review","quality","targets"]},
   {label:"ESG 데이터·공시",items:["metric-collection","indicators","evidence","reports"]},
   {label:"공급망 관리",items:["scope3"]},
   {label:"기준·운영관리",items:["reference","audit"]},
@@ -721,7 +721,7 @@ function viewFromPathname(pathname: string) {
   const normalized = pathname
     .replace(/^\/sems2(?=\/|$)/, "")
     .replace(/\/+$/, "") || "/";
-  if (normalized === "/collection-periods") return "metric-collection";
+  if (normalized === "/collection-periods" || normalized === "/data-collection") return "metric-collection";
   return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";
 }
 
@@ -914,6 +914,24 @@ function monthsBetween(from: string, to: string) {
   }
   return result;
 }
+function collectionPeriodLabel(from: string, to: string) {
+  const [fromYear, fromMonth] = from.split("-").map(Number);
+  const [toYear, toMonth] = to.split("-").map(Number);
+  if (fromYear === toYear && fromMonth === toMonth) return `${fromYear}년 ${fromMonth}월`;
+  if (fromYear === toYear && fromMonth === 1 && toMonth === 6) return `${fromYear}년 상반기`;
+  if (fromYear === toYear && fromMonth === 7 && toMonth === 12) return `${fromYear}년 하반기`;
+  if (fromYear === toYear) return `${fromYear}년 ${fromMonth}~${toMonth}월`;
+  return `${fromYear}년 ${fromMonth}월~${toYear}년 ${toMonth}월`;
+}
+function ghgRequestTitle(from: string, to: string, scopes: Scope[]) {
+  const scopeLabel = scopes.length ? scopes.map(scope => scope.replace("Scope ", "")).join("·") : "1·2";
+  return `${collectionPeriodLabel(from, to)} Scope ${scopeLabel} 온실가스 데이터 수집`;
+}
+function metricRequestTitle(from: string, to: string, indicatorIds: number[], indicators: Indicator[]) {
+  const categories = [...new Set(indicatorIds.map(id => indicators.find(indicator => indicator.id === id)?.category).filter(Boolean))];
+  const content = categories.length ? categories.join("·") : "ESG";
+  return `${collectionPeriodLabel(from, to)} ${content} 정량데이터 수집`;
+}
 function previousMonth(period: string, yearOffset = 0) {
   const [year, month] = period.split("-").map(Number);
   const cursor = year * 12 + month - 1 - (yearOffset ? 12 : 1);
@@ -981,6 +999,8 @@ export default function Home() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [collectionKind, setCollectionKind] = useState<"ghg"|"esg">("ghg");
+  const [ghgCollectionTab, setGhgCollectionTab] = useState<"input"|"request">("input");
   const [editing, setEditing] = useState<ActivityRecord | null>(null);
   const [toast, setToast] = useState("");
 
@@ -1156,7 +1176,27 @@ export default function Home() {
         {activeView === "scope3" && <Scope3SupplyChain requests={scope3Requests} suppliers={suppliers} formulas={formulas} fields={scope3Fields} templates={diagnosticTemplates} assessments={supplyChainAssessments} organizations={organizations} canManage={canManage} onRequestsChange={setScope3Requests} onTemplatesChange={setDiagnosticTemplates} onAssessmentsChange={setSupplyChainAssessments} addAudit={addAudit} showToast={showToast} />}
         {activeView === "evidence" && <Evidence items={evidence} onChange={setEvidence} showToast={showToast} />}
         {activeView === "indicators" && <Indicators items={indicators} onChange={setIndicators} showToast={showToast} />}
-        {activeView === "metric-collection" && <MetricCollection requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}
+        {activeView === "metric-collection" && <>
+          <section className="collection-hub">
+            <div>
+              <span>데이터 구분</span>
+              <strong>한 화면에서 요청부터 입력·제출까지 관리합니다.</strong>
+            </div>
+            <div className="collection-kind-filter" role="group" aria-label="데이터 구분 필터">
+              <button className={collectionKind==="ghg"?"active":""} onClick={()=>setCollectionKind("ghg")}><Icon name="leaf" size={16}/><span>온실가스</span><small>Scope 1·2·3</small></button>
+              <button className={collectionKind==="esg"?"active":""} onClick={()=>setCollectionKind("esg")}><Icon name="list" size={16}/><span>기타 ESG</span><small>환경·사회·지배구조</small></button>
+            </div>
+          </section>
+          {collectionKind==="ghg"?<>
+            <div className="collection-task-filter" role="group" aria-label="온실가스 수집 업무 필터">
+              <button className={ghgCollectionTab==="input"?"active":""} onClick={()=>setGhgCollectionTab("input")}><Icon name="database" size={16}/>데이터 입력·현황</button>
+              <button className={ghgCollectionTab==="request"?"active":""} onClick={()=>setGhgCollectionTab("request")}><Icon name="calendar" size={16}/>요청·기간 설정</button>
+            </div>
+            {ghgCollectionTab==="input"
+              ? <Collection records={records} periods={periods} criteria={criteria} organizationNames={organizationNames} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />
+              : <Periods periods={periods} records={records} organizationNames={organizationNames} onChange={setPeriods} addAudit={addAudit} showToast={showToast}/>}
+          </>:<MetricCollection requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}
+        </>}
         {activeView === "reports" && <ReportBuilder reports={reports} records={records} targets={targets} indicators={indicators} standards={disclosureStandards} organizationNames={organizationNames} canManage={canManage} onChange={setReports} addAudit={addAudit} showToast={showToast} />}
         {activeView === "reference" && <ReferenceManagement factors={factors} formulas={formulas} activityMasters={activityMasters} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={disclosureStandards} regulations={regulations} suppliers={suppliers} productMaterials={productMaterials} transportRoutes={transportRoutes} disclosureMappings={disclosureMappings} indicators={indicators} organizations={organizations} canManage={canManage} onFactorsChange={setFactors} onFormulasChange={setFormulas} onActivityMastersChange={setActivityMasters} onAssetUnitsChange={setAssetUnits} onScope3FieldsChange={setScope3Fields} onStandardsChange={setDisclosureStandards} onRegulationsChange={setRegulations} onSuppliersChange={setSuppliers} onProductMaterialsChange={setProductMaterials} onTransportRoutesChange={setTransportRoutes} onDisclosureMappingsChange={setDisclosureMappings} addAudit={addAudit} showToast={showToast} />}
         {activeView === "audit" && <AuditLog items={audit} showToast={showToast} />}
@@ -1266,14 +1306,17 @@ function PeriodForm({ item, existing, organizationNames, onClose, onSave }: { it
   const nextId = `CP-${new Date().getFullYear()}-${String(existing.length + 1).padStart(2,"0")}`;
   const today = new Date().toISOString().slice(0, 10);
   const currentMonth = today.slice(0, 7);
-  const [form, setForm] = useState<CollectionPeriod>(item ?? { id: nextId, name: "", cycle: "월", dataFrom: currentMonth, dataTo: currentMonth, openDate: today, dueDate: today, reviewDate: today, scopes: ["Scope 1","Scope 2"], companies: [...organizationNames], evidenceRequired: true, status: "예정", description: "" });
+  const defaultScopes:Scope[] = ["Scope 1","Scope 2"];
+  const [form, setForm] = useState<CollectionPeriod>(item ?? { id: nextId, name: ghgRequestTitle(currentMonth,currentMonth,defaultScopes), cycle: "월", dataFrom: currentMonth, dataTo: currentMonth, openDate: today, dueDate: today, reviewDate: today, scopes: defaultScopes, companies: [...organizationNames], evidenceRequired: true, status: "예정", description: "" });
+  const [autoName,setAutoName] = useState(!item);
   const [error, setError] = useState("");
   const patch = (next: Partial<CollectionPeriod>) => setForm(current => ({ ...current, ...next }));
-  const toggleScope = (scope: Scope) => patch({ scopes: form.scopes.includes(scope) ? form.scopes.filter(item => item !== scope) : [...form.scopes, scope] });
+  const changePeriod = (field:"dataFrom"|"dataTo",value:string) => setForm(current=>{const next={...current,[field]:value};return autoName?{...next,name:ghgRequestTitle(next.dataFrom,next.dataTo,next.scopes)}:next;});
+  const toggleScope = (scope: Scope) => setForm(current=>{const scopes=current.scopes.includes(scope)?current.scopes.filter(item=>item!==scope):[...current.scopes,scope];return {...current,scopes,name:autoName?ghgRequestTitle(current.dataFrom,current.dataTo,scopes):current.name};});
   const toggleCompany = (company: string) => patch({ companies: form.companies.includes(company) ? form.companies.filter(item => item !== company) : [...form.companies, company] });
   const submit = (event: FormEvent) => { event.preventDefault(); if (form.dataFrom > form.dataTo) { setError("귀속기간 종료월은 시작월보다 빠를 수 없습니다."); return; } if (form.openDate > form.dueDate || form.dueDate > form.reviewDate) { setError("수집 시작일 → 제출 마감일 → 검토 마감일 순서로 설정해 주세요."); return; } if (!form.scopes.length || !form.companies.length) { setError("대상 법인과 Scope를 한 개 이상 선택해 주세요."); return; } onSave(form); };
   return <Overlay title={item ? "수집기간 수정" : "새 수집기간 개설"} eyebrow="COLLECTION SCHEDULE" description="기간이 수집중일 때만 담당자가 활동자료를 등록·제출할 수 있습니다." onClose={onClose}><form onSubmit={submit}>
-    <div className="form-section"><h3><span>1</span>수집 기본정보</h3><div className="form-grid"><label className="full-span">수집기간명<input value={form.name} onChange={e=>patch({name:e.target.value})} placeholder="예: 2026년 8월 온실가스 정기수집" required/></label><label>수집 주기<select value={form.cycle} onChange={e=>patch({cycle:e.target.value as CollectionPeriod["cycle"]})}><option>월</option><option>분기</option><option>반기</option><option>연</option><option>수시</option></select></label><label>현재 상태<input value={form.status} readOnly className="readonly-input"/><small className="field-help">상태는 기간 카드의 단계별 버튼으로만 변경됩니다.</small></label><label>귀속 시작월<input type="month" value={form.dataFrom} onChange={e=>patch({dataFrom:e.target.value})} required/></label><label>귀속 종료월<input type="month" value={form.dataTo} onChange={e=>patch({dataTo:e.target.value})} required/></label></div></div>
+    <div className="form-section"><h3><span>1</span>수집 기본정보</h3><div className="form-grid"><label className="full-span">수집기간명<input value={form.name} onChange={e=>{setAutoName(false);patch({name:e.target.value})}} placeholder="기간과 Scope에 따라 자동 작성됩니다." required/><small className="field-help">기간과 Scope를 바꾸면 자동으로 갱신되며, 직접 수정할 수도 있습니다.</small></label><label>수집 주기<select value={form.cycle} onChange={e=>patch({cycle:e.target.value as CollectionPeriod["cycle"]})}><option>월</option><option>분기</option><option>반기</option><option>연</option><option>수시</option></select></label><label>현재 상태<input value={form.status} readOnly className="readonly-input"/><small className="field-help">상태는 기간 카드의 단계별 버튼으로만 변경됩니다.</small></label><label>귀속 시작월<input type="month" value={form.dataFrom} onChange={e=>changePeriod("dataFrom",e.target.value)} required/></label><label>귀속 종료월<input type="month" value={form.dataTo} onChange={e=>changePeriod("dataTo",e.target.value)} required/></label></div></div>
     <div className="form-section"><h3><span>2</span>운영 일정</h3><div className="form-grid"><label>수집 시작일<input type="date" value={form.openDate} onChange={e=>patch({openDate:e.target.value})} required/></label><label>제출 마감일<input type="date" value={form.dueDate} onChange={e=>patch({dueDate:e.target.value})} required/></label><label>검토 마감일<input type="date" value={form.reviewDate} onChange={e=>patch({reviewDate:e.target.value})} required/></label><Toggle label="제출 시 증빙 필수" checked={form.evidenceRequired} onChange={value=>patch({evidenceRequired:value})}/></div></div>
     <div className="form-section"><h3><span>3</span>수집 대상</h3><div className="check-group"><strong>대상 Scope</strong><div>{(["Scope 1","Scope 2","Scope 3"] as Scope[]).map(scope=><label key={scope}><input type="checkbox" checked={form.scopes.includes(scope)} onChange={()=>toggleScope(scope)}/>{scope}</label>)}</div></div><div className="check-group"><strong>대상 법인</strong><div>{organizationNames.map(company=><label key={company}><input type="checkbox" checked={form.companies.includes(company)} onChange={()=>toggleCompany(company)}/>{company}</label>)}{!organizationNames.length&&<span>Supabase에 법인을 먼저 등록해 주세요.</span>}</div></div><label className="textarea-label">운영 설명<textarea value={form.description} onChange={e=>patch({description:e.target.value})} placeholder="수집 목적과 담당자가 확인할 사항을 적어 주세요."/></label>{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div>
     <div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button className="primary-button" type="submit"><Icon name="check" size={16}/>저장</button></div>
@@ -1894,13 +1937,15 @@ function MetricCollection({requests,submissions,indicators,organizations,canWrit
 
 function MetricRequestForm({item,indicators,organizationNames,onClose,onSave,onDelete}:{item:MetricRequest|null;indicators:Indicator[];organizationNames:string[];onClose:()=>void;onSave:(request:MetricRequest)=>void;onDelete?:()=>void}){
   const month=new Date().toISOString().slice(0,7);const due=new Date().toISOString().slice(0,10);
-  const [form,setForm]=useState<MetricRequest>(item??{id:"",title:"",periodFrom:month,periodTo:month,dueDate:due,companies:[...organizationNames],indicatorIds:[],description:"",status:"예정",updatedAt:"방금 전"});
+  const [form,setForm]=useState<MetricRequest>(item??{id:"",title:metricRequestTitle(month,month,[],indicators),periodFrom:month,periodTo:month,dueDate:due,companies:[...organizationNames],indicatorIds:[],description:"",status:"예정",updatedAt:"방금 전"});
+  const [autoTitle,setAutoTitle]=useState(!item);
   const [error,setError]=useState("");
   const patch=(value:Partial<MetricRequest>)=>{setForm(current=>({...current,...value}));setError("");};
   const toggleCompany=(company:string)=>patch({companies:form.companies.includes(company)?form.companies.filter(item=>item!==company):[...form.companies,company]});
-  const toggleIndicator=(id:number)=>patch({indicatorIds:form.indicatorIds.includes(id)?form.indicatorIds.filter(item=>item!==id):[...form.indicatorIds,id]});
+  const changePeriod=(field:"periodFrom"|"periodTo",value:string)=>setForm(current=>{const next={...current,[field]:value};return autoTitle?{...next,title:metricRequestTitle(next.periodFrom,next.periodTo,next.indicatorIds,indicators)}:next;});
+  const toggleIndicator=(id:number)=>setForm(current=>{const indicatorIds=current.indicatorIds.includes(id)?current.indicatorIds.filter(item=>item!==id):[...current.indicatorIds,id];return {...current,indicatorIds,title:autoTitle?metricRequestTitle(current.periodFrom,current.periodTo,indicatorIds,indicators):current.title};});
   const submit=(event:FormEvent)=>{event.preventDefault();if(!form.companies.length){setError("대상 법인을 한 곳 이상 선택해 주세요.");return;}if(!form.indicatorIds.length){setError("요청할 ESG 지표를 한 개 이상 선택해 주세요.");return;}if(form.periodFrom>form.periodTo){setError("수집 시작기간은 종료기간보다 늦을 수 없습니다.");return;}onSave(form);};
-  return <Overlay title={item?"수집 기간·요청 수정":"새 수집 기간·요청"} eyebrow="METRIC REQUEST" description="정량데이터의 대상 법인, 지표, 수집 기간과 제출 마감일을 한 번에 지정합니다." onClose={onClose}><form onSubmit={submit}><div className="form-section"><h3><span>1</span>기간·요청 기본정보</h3><div className="form-grid"><label className="full-span">요청명<input value={form.title} onChange={event=>patch({title:event.target.value})} placeholder="예: 2026년 상반기 환경·사회 정량데이터 수집" required/></label><label>시작기간<input type="month" value={form.periodFrom} onChange={event=>patch({periodFrom:event.target.value})} required/></label><label>종료기간<input type="month" value={form.periodTo} onChange={event=>patch({periodTo:event.target.value})} required/></label><label>제출 마감일<input type="date" value={form.dueDate} onChange={event=>patch({dueDate:event.target.value})} required/></label><label>진행 상태<select value={form.status} onChange={event=>patch({status:event.target.value as MetricRequestStatus})}><option>예정</option><option>수집중</option><option>검토중</option><option>마감</option></select></label><label className="full-span textarea-label">요청 안내<textarea value={form.description} onChange={event=>patch({description:event.target.value})} placeholder="산정기준, 포함 범위, 증빙자료 기준 등을 적어 주세요."/></label></div></div><div className="form-section"><h3><span>2</span>대상 법인</h3><div className="selection-grid">{organizationNames.map(company=><label key={company} className={form.companies.includes(company)?"selected":""}><input type="checkbox" checked={form.companies.includes(company)} onChange={()=>toggleCompany(company)}/><span><strong>{company}</strong><small>정량데이터 입력 요청</small></span></label>)}</div></div><div className="form-section"><h3><span>3</span>요청 지표와 맞춤 양식</h3><div className="metric-picker">{indicators.map(indicator=>{const template=metricTemplateOf(indicator);return <label key={indicator.id} className={form.indicatorIds.includes(indicator.id)?"selected":""}><input type="checkbox" checked={form.indicatorIds.includes(indicator.id)} onChange={()=>toggleIndicator(indicator.id)}/><span className={`pillar-tag ${indicator.category==="환경"?"e":indicator.category==="사회"?"s":"g"}`}>{indicator.category}</span><div><strong>{indicator.name}</strong><small>{indicator.code} · {indicator.unit} · {METRIC_TEMPLATE_LABELS[template]}</small></div></label>})}</div>{!indicators.length&&<div className="empty-state compact"><strong>사용 중인 ESG 지표가 없습니다.</strong></div>}{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>요청 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>기간·요청 저장</button></div></div></form></Overlay>;
+  return <Overlay title={item?"수집 기간·요청 수정":"새 수집 기간·요청"} eyebrow="METRIC REQUEST" description="정량데이터의 대상 법인, 지표, 수집 기간과 제출 마감일을 한 번에 지정합니다." onClose={onClose}><form onSubmit={submit}><div className="form-section"><h3><span>1</span>기간·요청 기본정보</h3><div className="form-grid"><label className="full-span">요청명<input value={form.title} onChange={event=>{setAutoTitle(false);patch({title:event.target.value})}} placeholder="기간과 요청 지표에 따라 자동 작성됩니다." required/><small className="field-help">기간과 선택한 지표 분류를 반영해 자동 작성되며, 직접 수정할 수도 있습니다.</small></label><label>시작기간<input type="month" value={form.periodFrom} onChange={event=>changePeriod("periodFrom",event.target.value)} required/></label><label>종료기간<input type="month" value={form.periodTo} onChange={event=>changePeriod("periodTo",event.target.value)} required/></label><label>제출 마감일<input type="date" value={form.dueDate} onChange={event=>patch({dueDate:event.target.value})} required/></label><label>진행 상태<select value={form.status} onChange={event=>patch({status:event.target.value as MetricRequestStatus})}><option>예정</option><option>수집중</option><option>검토중</option><option>마감</option></select></label><label className="full-span textarea-label">요청 안내<textarea value={form.description} onChange={event=>patch({description:event.target.value})} placeholder="산정기준, 포함 범위, 증빙자료 기준 등을 적어 주세요."/></label></div></div><div className="form-section"><h3><span>2</span>대상 법인</h3><div className="selection-grid">{organizationNames.map(company=><label key={company} className={form.companies.includes(company)?"selected":""}><input type="checkbox" checked={form.companies.includes(company)} onChange={()=>toggleCompany(company)}/><span><strong>{company}</strong><small>정량데이터 입력 요청</small></span></label>)}</div></div><div className="form-section"><h3><span>3</span>요청 지표와 맞춤 양식</h3><div className="metric-picker">{indicators.map(indicator=>{const template=metricTemplateOf(indicator);return <label key={indicator.id} className={form.indicatorIds.includes(indicator.id)?"selected":""}><input type="checkbox" checked={form.indicatorIds.includes(indicator.id)} onChange={()=>toggleIndicator(indicator.id)}/><span className={`pillar-tag ${indicator.category==="환경"?"e":indicator.category==="사회"?"s":"g"}`}>{indicator.category}</span><div><strong>{indicator.name}</strong><small>{indicator.code} · {indicator.unit} · {METRIC_TEMPLATE_LABELS[template]}</small></div></label>})}</div>{!indicators.length&&<div className="empty-state compact"><strong>사용 중인 ESG 지표가 없습니다.</strong></div>}{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div><div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>요청 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>기간·요청 저장</button></div></div></form></Overlay>;
 }
 
 function MetricSubmissionForm({context,organizations,defaultOwner,defaultDepartment,canManage,onClose,onSave}:{context:{request:MetricRequest;indicator:Indicator;company:string;submission?:MetricSubmission};organizations:Record<string,string[]>;defaultOwner:string;defaultDepartment:string;canManage:boolean;onClose:()=>void;onSave:(submission:MetricSubmission)=>void}){
