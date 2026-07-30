@@ -1004,7 +1004,7 @@ export default function Home() {
         const savedIndicators = localStorage.getItem("sems2-indicators"); if (savedIndicators) setIndicators(mergeMasterRows(JSON.parse(savedIndicators),DEFAULT_MASTER_INDICATORS));
         const savedMetricRequests = localStorage.getItem("sems2-metric-requests"); if (savedMetricRequests) setMetricRequests(JSON.parse(savedMetricRequests));
         const savedMetricSubmissions = localStorage.getItem("sems2-metric-submissions"); if (savedMetricSubmissions) setMetricSubmissions(JSON.parse(savedMetricSubmissions));
-        const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(normalizeReportDefaults(JSON.parse(savedReports) as SustainabilityReport[]));
+        const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(JSON.parse(savedReports) as SustainabilityReport[]);
         const savedTargets = localStorage.getItem("sems2-targets"); if (savedTargets) setTargets(JSON.parse(savedTargets));
         const savedPlans = localStorage.getItem("sems2-reduction-plans"); if (savedPlans) setPlans(JSON.parse(savedPlans));
         const savedAudit = localStorage.getItem("sems2-audit"); if (savedAudit) setAudit(JSON.parse(savedAudit));
