@@ -2,3 +2,4 @@ Temporary pull request trigger for validating the synchronized SEMS2 Sites sourc
 Validation rerun after fixing workflow staging.
 Validation rerun after removing the unresolved report normalizer dependency.
 Validation rerun after restoring the active Evidence, Indicators, Scope 3, report, reference, audit, settings, and bulk-import component scope.
+Validation rerun after closing the remaining legacy settings comment.
