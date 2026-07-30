@@ -73,7 +73,7 @@ jobs:
               1,
           )
 
-          path.write_text(text, encoding="utf-8")
+          text = text.replace(\'mode==="균등 배분"?"chart":"edit"\', \'mode==="균등 배분"?"target":"edit"\')\n\n          path.write_text(text, encoding="utf-8")
           PY
 
           git config user.name "github-actions[bot]"
