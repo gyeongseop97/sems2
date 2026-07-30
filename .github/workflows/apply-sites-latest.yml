@@ -65,7 +65,7 @@ jobs:
           PY
 
           rm -f sites-sync.log sites-validation.log
-          git add -A -- app/page.tsx app/globals.css tests/rendered-html.test.mjs sites-validation.log
+          git add -A -- app/page.tsx app/globals.css tests/rendered-html.test.mjs
           if git diff --cached --quiet; then
             echo "No source changes to commit."
           elif [ "${{ github.event_name }}" = "push" ]; then
