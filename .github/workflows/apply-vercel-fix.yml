@@ -16,7 +16,7 @@ jobs:
         with:
           ref: diagnostics/sites-latest-validation
           fetch-depth: 0
-      - name: Restore active components and comment boundaries
+      - name: Restore components and align merged collection UI
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -34,7 +34,6 @@ jobs:
           indicator_marker = "function IndicatorForm({item,onClose,onSave,onDelete}"
           indicator_pos = text.index(indicator_marker, legacy_start)
           active_evidence_marker = "function Evidence({items,onChange,showToast}"
-
           segment = text[legacy_start:indicator_pos]
           if "\n*/\n\n" + active_evidence_marker not in segment:
               historical = subprocess.check_output(
@@ -55,6 +54,25 @@ jobs:
           if "\n*/\n\n" not in settings_segment:
               text = text[:active_settings] + "*/\n\n" + text[active_settings:]
 
+          text = text.replace(
+              'type View = "dashboard" | "periods" | "collection"',
+              'type View = "dashboard" | "collection"',
+              1,
+          )
+          text = text.replace('  periods: "/collection-periods",\n', '', 1)
+          text = text.replace(
+              '  return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";',
+              '  if (normalized === "/collection-periods") return "metric-collection";\n  return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";',
+              1,
+          )
+          periods_render = '        {activeView === "periods" && <Periods periods={periods} records={records} organizationNames={organizationNames} onChange={items=>{if(!canManage){showToast("수집기간 관리는 관리자 권한이 필요합니다.");return;}setPeriods(items);}} addAudit={addAudit} showToast={showToast} />}\n'
+          text = text.replace(periods_render, '', 1)
+          text = text.replace(
+              '  useEffect(()=>{if(selected&&!selectedId)setSelectedId(selected.id);},[selected,selectedId]);\n',
+              '',
+              1,
+          )
+
           path.write_text(text, encoding="utf-8")
           PY
 
@@ -64,6 +82,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No source repair needed."
           else
-            git commit -m "Close legacy settings comment for Vercel build"
+            git commit -m "Align merged collection route and state handling"
             git push origin HEAD:diagnostics/sites-latest-validation
           fi
