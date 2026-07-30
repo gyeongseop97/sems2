@@ -1,6 +1,6 @@
 name: Apply Sites latest to GitHub
 
-# One-time synchronization trigger with committed diagnostics
+# One-time synchronization trigger with committed diagnostics (validation rerun)
 on:
   push:
     paths:
