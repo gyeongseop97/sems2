@@ -11,6 +11,12 @@ type WorkspacePayload = {
   periods: unknown[];
   records: unknown[];
   factors: unknown[];
+  formulas: unknown[];
+  activityMasters: unknown[];
+  assetUnits: unknown[];
+  scope3Fields: unknown[];
+  disclosureStandards: unknown[];
+  regulations: unknown[];
   evidence: unknown[];
   indicators: unknown[];
   metricRequests: unknown[];
@@ -41,6 +47,12 @@ const EMPTY_WORKSPACE: WorkspacePayload = {
   periods: [],
   records: [],
   factors: DEFAULT_EMISSION_FACTORS,
+  formulas: [],
+  activityMasters: [],
+  assetUnits: [],
+  scope3Fields: [],
+  disclosureStandards: [],
+  regulations: [],
   evidence: [],
   indicators: [],
   metricRequests: [],
@@ -70,6 +82,12 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
     periods: Array.isArray(payload.periods) ? payload.periods : [],
     records: Array.isArray(payload.records) ? payload.records : [],
     factors: withDefaultEmissionFactors(Array.isArray(payload.factors) ? payload.factors : []),
+    formulas: Array.isArray(payload.formulas) ? payload.formulas : [],
+    activityMasters: Array.isArray(payload.activityMasters) ? payload.activityMasters : [],
+    assetUnits: Array.isArray(payload.assetUnits) ? payload.assetUnits : [],
+    scope3Fields: Array.isArray(payload.scope3Fields) ? payload.scope3Fields : [],
+    disclosureStandards: Array.isArray(payload.disclosureStandards) ? payload.disclosureStandards : [],
+    regulations: Array.isArray(payload.regulations) ? payload.regulations : [],
     evidence: Array.isArray(payload.evidence) ? payload.evidence : [],
     indicators: Array.isArray(payload.indicators) ? payload.indicators : [],
     metricRequests: Array.isArray(payload.metricRequests) ? payload.metricRequests : [],
