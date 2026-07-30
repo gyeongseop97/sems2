@@ -1,4 +1,4 @@
-name: Apply Vercel source repair
+name: Validate Vercel build
 
 on:
   push:
@@ -6,82 +6,24 @@ on:
       - ".github/workflows/apply-vercel-fix.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: diagnostics/sites-latest-validation
-          fetch-depth: 0
-      - name: Restore components and align merged collection UI
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run lint and Sites tests
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import subprocess
-
-          path = Path("app/page.tsx")
-          text = path.read_text(encoding="utf-8")
-
-          old_report = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(normalizeReportDefaults(JSON.parse(savedReports) as SustainabilityReport[]));'
-          new_report = 'const savedReports = localStorage.getItem("sems2-reports"); if (savedReports) setReports(JSON.parse(savedReports) as SustainabilityReport[]);'
-          text = text.replace(old_report, new_report, 1)
-
-          plan_pos = text.index("function PlanForm(")
-          legacy_start = text.index("\n/*\nfunction Evidence(", plan_pos)
-          indicator_marker = "function IndicatorForm({item,onClose,onSave,onDelete}"
-          indicator_pos = text.index(indicator_marker, legacy_start)
-          active_evidence_marker = "function Evidence({items,onChange,showToast}"
-          segment = text[legacy_start:indicator_pos]
-          if "\n*/\n\n" + active_evidence_marker not in segment:
-              historical = subprocess.check_output(
-                  ["git", "show", "668f094c469334c52d4e1895b86934543b4cc582:app/page.tsx"],
-                  text=True,
-              )
-              historical_plan = historical.index("function PlanForm(")
-              historical_close = historical.index("\n*/", historical_plan)
-              historical_evidence = historical.index(active_evidence_marker, historical_close)
-              historical_indicator = historical.index(indicator_marker, historical_evidence)
-              restored = historical[historical_evidence:historical_indicator].rstrip()
-              text = text[:indicator_pos] + "*/\n\n" + restored + "\n\n" + text[indicator_pos:]
-
-          settings_legacy = text.index("\n/*\nfunction OrganizationSettings(", text.index("function Settings("))
-          active_settings_marker = "function OrganizationSettings({organizations}:{organizations:Record<string,string[]>;onChange:"
-          active_settings = text.index(active_settings_marker, settings_legacy)
-          settings_segment = text[settings_legacy:active_settings]
-          if "\n*/\n\n" not in settings_segment:
-              text = text[:active_settings] + "*/\n\n" + text[active_settings:]
-
-          text = text.replace(
-              'type View = "dashboard" | "periods" | "collection"',
-              'type View = "dashboard" | "collection"',
-              1,
-          )
-          text = text.replace('  periods: "/collection-periods",\n', '', 1)
-          text = text.replace(
-              '  return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";',
-              '  if (normalized === "/collection-periods") return "metric-collection";\n  return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";',
-              1,
-          )
-          periods_render = '        {activeView === "periods" && <Periods periods={periods} records={records} organizationNames={organizationNames} onChange={items=>{if(!canManage){showToast("수집기간 관리는 관리자 권한이 필요합니다.");return;}setPeriods(items);}} addAudit={addAudit} showToast={showToast} />}\n'
-          text = text.replace(periods_render, '', 1)
-          text = text.replace(
-              '  useEffect(()=>{if(selected&&!selectedId)setSelectedId(selected.id);},[selected,selectedId]);\n',
-              '',
-              1,
-          )
-
-          text = text.replace(\'mode==="균등 배분"?"chart":"edit"\', \'mode==="균등 배분"?"target":"edit"\')\n\n          path.write_text(text, encoding="utf-8")
-          PY
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/page.tsx
-          if git diff --cached --quiet; then
-            echo "No source repair needed."
-          else
-            git commit -m "Align merged collection route and state handling"
-            git push origin HEAD:diagnostics/sites-latest-validation
-          fi
+          npm run lint
+          npm test
+      - name: Run Vercel-equivalent build
+        run: npm run build:vercel
