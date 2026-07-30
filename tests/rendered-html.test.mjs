@@ -65,6 +65,23 @@ test("renders development preview metadata", async () => {
   );
   assert.equal(referenceResponse.status, 200);
   assert.match(await referenceResponse.text(), developmentPreviewMeta);
+
+  const scope3Response = await worker.fetch(
+    new Request("http://localhost/scope3-supply-chain", {
+      headers: { accept: "text/html" },
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+  assert.equal(scope3Response.status, 200);
+  assert.match(await scope3Response.text(), developmentPreviewMeta);
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
@@ -105,6 +122,15 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /보고기준·공시항목/);
   assert.match(page, /standardCodes=\[\.\.\.new Set/);
   assert.match(page, /규제·준수 관리/);
+  assert.match(page, /Scope 3·공급망 관리/);
+  assert.match(page, /공급사 마스터/);
+  assert.match(page, /자재·제품 마스터/);
+  assert.match(page, /이동거리 마스터/);
+  assert.match(page, /정량지표 × 보고기준 연결/);
+  assert.match(page, /DEFAULT_SCOPE3_FIELD_BLUEPRINTS/);
+  assert.match(page, /공급망 수준 진단 요청/);
+  assert.match(page, /scope3: "\/scope3-supply-chain"/);
+  assert.match(page, /NAV_GROUPS/);
   assert.match(page, /DEFAULT_CALCULATION_FORMULAS/);
   assert.match(page, /sems2-disclosure-standards/);
   assert.match(page, /const VIEW_PATHS: Record<View, string>/);
@@ -126,6 +152,9 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(styles, /@page landscapeReport \{ size: 407mm 229mm;/);
   assert.match(styles, /\.reference-layout \{/);
   assert.match(styles, /\.scope3-reference-layout \{/);
+  assert.match(styles, /\.scope3-workspace \{/);
+  assert.match(styles, /\.reference-nav-group \{/);
+  assert.match(styles, /\.mapping-summary \{/);
   assert.match(styles, /\.plan-status-preview p \{ font-size: 13px;/);
   assert.match(styles, /\.data-table td \{ height: 78px;/);
 });
