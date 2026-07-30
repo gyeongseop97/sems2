@@ -1,6 +1,6 @@
 name: Apply Sites latest to GitHub
 
-# One-time synchronization trigger with committed diagnostics (validation rerun)
+# One-time synchronization trigger with idempotent cleanup and validation
 on:
   push:
     paths:
@@ -43,8 +43,26 @@ jobs:
             exit "$PATCH_EXIT"
           fi
 
-          rm -f sites-sync.log
-          git add app/page.tsx app/globals.css tests/rendered-html.test.mjs
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/page.tsx")
+          text = path.read_text(encoding="utf-8")
+          anchor = text.index("const standardMetricIndicators")
+          start = text.index("type MetricTemplateField = {", anchor)
+          function_start = text.index("function MetricCollection(", start)
+          second = text.find("type MetricTemplateField = {", start + 1, function_start)
+          if second >= 0:
+              canonical = text[start:second].rstrip()
+              text = text[:start] + canonical + "\n\n" + text[function_start:]
+              path.write_text(text, encoding="utf-8")
+              print("Removed duplicate metric template definitions.")
+          else:
+              print("Metric template definitions are already singular.")
+          PY
+
+          rm -f sites-sync.log sites-validation.log
+          git add -A -- app/page.tsx app/globals.css tests/rendered-html.test.mjs sites-validation.log
           if git diff --cached --quiet; then
             echo "No source changes to commit."
           else
