@@ -97,6 +97,13 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /"내부 감축" \| "외부 감축" \| "비정량 과제"/);
   assert.match(page, /연간 절감비/);
   assert.match(page, /ESG 정량데이터 수집/);
+  assert.match(page, /ESG 정량데이터 수집·기간 설정/);
+  assert.match(page, /폐기물 구분/);
+  assert.match(page, /법정 의무교육/);
+  assert.match(page, /지표 특성에 맞는 양식/);
+  assert.match(page, /Scope 1·2 기준연도 배출량/);
+  assert.match(page, /균등 배분/);
+  assert.match(page, /수동 입력/);
   assert.match(page, /지속가능경영보고서 작성/);
   assert.match(page, /교육시간·용수·대기오염·폐기물/);
   assert.match(page, /확정 ESG 정량데이터 자동 연결/);
@@ -155,6 +162,9 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(styles, /\.scope3-workspace \{/);
   assert.match(styles, /\.reference-nav-group \{/);
   assert.match(styles, /\.mapping-summary \{/);
+  assert.match(styles, /\.metric-workspace-tabs \{/);
+  assert.match(styles, /\.metric-detail-editor \{/);
+  assert.match(styles, /\.target-allocation-toggle \{/);
   assert.match(styles, /\.plan-status-preview p \{ font-size: 13px;/);
   assert.match(styles, /\.data-table td \{ height: 78px;/);
 });
