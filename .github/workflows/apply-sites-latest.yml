@@ -1,5 +1,6 @@
 name: Apply Sites latest to GitHub
 
+# One-time synchronization trigger
 on:
   push:
     paths:
