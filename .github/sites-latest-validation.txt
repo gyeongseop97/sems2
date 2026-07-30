@@ -4,3 +4,4 @@ Validation rerun after removing the unresolved report normalizer dependency.
 Validation rerun after restoring the active Evidence, Indicators, Scope 3, report, reference, audit, settings, and bulk-import component scope.
 Validation rerun after closing the remaining legacy settings comment.
 Validation rerun after removing the obsolete separate periods route and synchronous effect state update.
+Final validation after removing the completed one-time synchronization workflow and script.
