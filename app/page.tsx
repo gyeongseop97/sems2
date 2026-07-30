@@ -942,7 +942,7 @@ export default function Home() {
   const router = useRouter();
   const requestedView = viewFromPathname(pathname);
   const routeForbidden = (requestedView === "review" && !canReview) || (requestedView === "settings" && !canManage);
-  const activeView = routeForbidden ? "dashboard" : requestedView === "periods" ? "metric-collection" : requestedView;
+  const activeView = routeForbidden ? "dashboard" : requestedView;
   const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [factors, setFactors] = useState<EmissionFactor[]>(DEFAULT_MASTER_FACTORS);
   const [formulas, setFormulas] = useState<CalculationFormula[]>(DEFAULT_CALCULATION_FORMULAS);
