@@ -20,7 +20,7 @@ import {
 import { DEFAULT_EMISSION_FACTORS, mergeDefaultEmissionFactors, SCOPE3_CATEGORIES, SCOPE_GUIDANCE } from "@/lib/emission-factor-library";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-type View = "dashboard" | "collection" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
+type View = "dashboard" | "collection" | "collection-request" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
 type Scope = "Scope 1" | "Scope 2" | "Scope 3";
 type RecordStatus = "작성중" | "검토대기" | "반려" | "확정";
 type EvidenceStatus = "검토중" | "승인" | "보완 요청" | "만료";
@@ -678,15 +678,16 @@ const DEFAULT_MASTER_INDICATORS:Indicator[] = COMPLILAW_QUANTITATIVE_INDICATORS.
 
 const navItems: { id: View; label: string; icon: IconName }[] = [
   { id: "dashboard", label: "대시보드", icon: "dashboard" },
-  { id: "collection", label: "데이터 수집·입력", icon: "database" },
-  { id: "review", label: "온실가스 검토·승인", icon: "check" },
+  { id: "collection", label: "데이터 입력", icon: "database" },
+  { id: "collection-request", label: "수집 요청", icon: "calendar" },
+  { id: "review", label: "데이터 검토·승인", icon: "check" },
   { id: "quality", label: "온실가스 데이터 품질", icon: "alert" },
   { id: "inventory", label: "온실가스 인벤토리", icon: "leaf" },
   { id: "targets", label: "감축목표·이행계획", icon: "target" },
   { id: "scope3", label: "Scope 3·공급망", icon: "building" },
   { id: "evidence", label: "증빙자료", icon: "file" },
   { id: "indicators", label: "ESG 지표 관리", icon: "list" },
-  { id: "metric-collection", label: "데이터 수집·입력", icon: "database" },
+  { id: "metric-collection", label: "데이터 입력", icon: "database" },
   { id: "reports", label: "지속가능경영보고서", icon: "edit" },
   { id: "reference", label: "기준정보·규제 관리", icon: "settings" },
   { id: "audit", label: "변경 이력", icon: "clock" },
@@ -694,8 +695,8 @@ const navItems: { id: View; label: string; icon: IconName }[] = [
 
 const NAV_GROUPS:{label:string;items:View[]}[]=[
   {label:"현황",items:["dashboard"]},
-  {label:"온실가스 관리",items:["inventory","review","quality","targets"]},
-  {label:"ESG 데이터·공시",items:["metric-collection","indicators","evidence","reports"]},
+  {label:"온실가스 관리",items:["inventory","quality","targets"]},
+  {label:"ESG 데이터·공시",items:["collection-request","metric-collection","review","indicators","evidence","reports"]},
   {label:"공급망 관리",items:["scope3"]},
   {label:"기준·운영관리",items:["reference","audit"]},
 ];
@@ -703,6 +704,7 @@ const NAV_GROUPS:{label:string;items:View[]}[]=[
 const VIEW_PATHS: Record<View, string> = {
   dashboard: "/",
   collection: "/data-collection",
+  "collection-request": "/collection-request",
   review: "/review",
   quality: "/data-quality",
   inventory: "/inventory",
@@ -721,7 +723,8 @@ function viewFromPathname(pathname: string) {
   const normalized = pathname
     .replace(/^\/sems2(?=\/|$)/, "")
     .replace(/\/+$/, "") || "/";
-  if (normalized === "/collection-periods" || normalized === "/data-collection") return "metric-collection";
+  if (normalized === "/collection-periods") return "collection-request";
+  if (normalized === "/data-collection") return "metric-collection";
   return (Object.entries(VIEW_PATHS).find(([, path]) => path === normalized)?.[0] as View | undefined) ?? "dashboard";
 }
 
@@ -960,7 +963,7 @@ export default function Home() {
   const pathname = usePathname();
   const router = useRouter();
   const requestedView = viewFromPathname(pathname);
-  const routeForbidden = (requestedView === "review" && !canReview) || (requestedView === "settings" && !canManage);
+  const routeForbidden = (["review","collection-request"].includes(requestedView) && !canManage) || (requestedView === "settings" && !canManage);
   const activeView = routeForbidden ? "dashboard" : requestedView;
   const [records, setRecords] = useState<ActivityRecord[]>([]);
   const [factors, setFactors] = useState<EmissionFactor[]>(DEFAULT_MASTER_FACTORS);
@@ -1000,7 +1003,7 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [collectionKind, setCollectionKind] = useState<"ghg"|"esg">("ghg");
-  const [ghgCollectionTab, setGhgCollectionTab] = useState<"input"|"request">("input");
+  const [reviewKind, setReviewKind] = useState<"ghg"|"esg">("ghg");
   const [editing, setEditing] = useState<ActivityRecord | null>(null);
   const [toast, setToast] = useState("");
 
@@ -1151,13 +1154,13 @@ export default function Home() {
 
   const roleLabel = { admin: "시스템 관리자", manager: "기획실 관리자", editor: "자료 입력자", viewer: "조회자" }[profile.role];
   const syncLabel = syncStatus === "saving" ? "서버 저장 중" : syncStatus === "error" ? "서버 저장 확인 필요" : canWrite ? "서버 저장 완료" : "서버 조회 전용";
-  const allowedNavItems = navItems.filter(item => (item.id !== "review" || canReview) && (item.id !== "quality" || canReview));
+  const allowedNavItems = navItems.filter(item => (!["review","collection-request"].includes(item.id) || canManage) && (item.id !== "quality" || canReview));
   const organizationNames = Object.keys(organizations);
 
   return <div className="app-shell">
     <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
       <div className="brand"><div className="brand-mark"><span>S</span></div><div><strong>SEMS</strong><small>Sewon ESG Management</small></div><button className="icon-button sidebar-close" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기"><Icon name="close" /></button></div>
-      <nav className="main-nav" aria-label="주 메뉴">{NAV_GROUPS.map(group=>{const open=openNavGroups.includes(group.label);return <div className={`nav-section ${open?"open":"collapsed"}`} key={group.label}><button type="button" className="nav-group-toggle" aria-expanded={open} onClick={()=>setOpenNavGroups(current=>open?current.filter(label=>label!==group.label):[...current,group.label])}><span>{group.label}</span><Icon name="chevron" size={13}/></button><div className="nav-group-items" aria-hidden={!open}><div className="nav-group-items-inner">{group.items.map(id=>allowedNavItems.find(item=>item.id===id)).filter((item):item is (typeof navItems)[number]=>Boolean(item)).map(item=><NavButton key={item.id} item={item} active={activeView===item.id} onClick={()=>navigate(item.id)} count={item.id==="review"?records.filter(r=>r.status==="검토대기").length:item.id==="scope3"?scope3Requests.filter(request=>["대기중","진행중","재요청"].includes(request.status)).length:undefined}/>)}</div></div></div>})}</nav>
+      <nav className="main-nav" aria-label="주 메뉴">{NAV_GROUPS.map(group=>{const open=openNavGroups.includes(group.label);return <div className={`nav-section ${open?"open":"collapsed"}`} key={group.label}><button type="button" className="nav-group-toggle" aria-expanded={open} onClick={()=>setOpenNavGroups(current=>open?current.filter(label=>label!==group.label):[...current,group.label])}><span>{group.label}</span><Icon name="chevron" size={13}/></button><div className="nav-group-items" aria-hidden={!open}><div className="nav-group-items-inner">{group.items.map(id=>allowedNavItems.find(item=>item.id===id)).filter((item):item is (typeof navItems)[number]=>Boolean(item)).map(item=><NavButton key={item.id} item={item} active={activeView===item.id} onClick={()=>navigate(item.id)} count={item.id==="review"?records.filter(r=>r.status==="검토대기").length+metricSubmissions.filter(item=>item.status==="검토대기").length:item.id==="scope3"?scope3Requests.filter(request=>["대기중","진행중","재요청"].includes(request.status)).length:undefined}/>)}</div></div></div>})}</nav>
       <div className="sidebar-bottom">{canManage&&<NavButton item={{ id:"settings", label:"시스템 설정", icon:"settings" }} active={activeView==="settings"} onClick={()=>navigate("settings")}/>}<div className="help-card"><div className="help-icon">?</div><strong>도움이 필요하신가요?</strong><p>입력 기준과 실제 사용 순서를 확인하세요.</p><button onClick={() => { setGuideOpen(true); setMobileMenu(false); }}>사용 가이드 <Icon name="arrow" size={14} /></button></div></div>
     </aside>
     {mobileMenu && <button className="mobile-overlay" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기" />}
@@ -1169,34 +1172,15 @@ export default function Home() {
       <main className="content">
         {activeView === "dashboard" && <Dashboard records={records} periods={periods} targets={targets} plans={plans} organizationNames={organizationNames} onNavigate={navigate} onNew={() => openForm()} />}
         {activeView === "collection" && <Collection records={records} periods={periods} criteria={criteria} organizationNames={organizationNames} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />}
-        {activeView === "review" && <Review records={records} periods={periods} criteria={criteria} onChange={updateRecords} showToast={showToast} />}
+        {activeView === "review" && <><CollectionKindHeader kind={reviewKind} onChange={setReviewKind} description="온실가스와 기타 ESG 제출자료를 검토하고 승인·반려합니다." />{reviewKind==="ghg"?<Review records={records} periods={periods} criteria={criteria} onChange={updateRecords} showToast={showToast} />:<MetricCollection mode="review" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
         {activeView === "quality" && <DataQuality records={records} periods={periods} criteria={criteria} onNavigate={navigate} />}
         {activeView === "inventory" && <Inventory records={records} targets={targets} organizationNames={organizationNames} onNavigate={navigate} showToast={showToast} />}
         {activeView === "targets" && <TargetsAndPlans targets={targets} plans={plans} records={records} organizations={organizations} onTargetsChange={items=>{if(!canManage){showToast("감축목표 관리는 관리자 권한이 필요합니다.");return;}setTargets(items);}} onPlansChange={items=>{if(!canManage){showToast("감축계획 관리는 관리자 권한이 필요합니다.");return;}setPlans(items);}} addAudit={addAudit} showToast={showToast} />}
         {activeView === "scope3" && <Scope3SupplyChain requests={scope3Requests} suppliers={suppliers} formulas={formulas} fields={scope3Fields} templates={diagnosticTemplates} assessments={supplyChainAssessments} organizations={organizations} canManage={canManage} onRequestsChange={setScope3Requests} onTemplatesChange={setDiagnosticTemplates} onAssessmentsChange={setSupplyChainAssessments} addAudit={addAudit} showToast={showToast} />}
         {activeView === "evidence" && <Evidence items={evidence} onChange={setEvidence} showToast={showToast} />}
         {activeView === "indicators" && <Indicators items={indicators} onChange={setIndicators} showToast={showToast} />}
-        {activeView === "metric-collection" && <>
-          <section className="collection-hub">
-            <div>
-              <span>데이터 구분</span>
-              <strong>한 화면에서 요청부터 입력·제출까지 관리합니다.</strong>
-            </div>
-            <div className="collection-kind-filter" role="group" aria-label="데이터 구분 필터">
-              <button className={collectionKind==="ghg"?"active":""} onClick={()=>setCollectionKind("ghg")}><Icon name="leaf" size={16}/><span>온실가스</span><small>Scope 1·2·3</small></button>
-              <button className={collectionKind==="esg"?"active":""} onClick={()=>setCollectionKind("esg")}><Icon name="list" size={16}/><span>기타 ESG</span><small>환경·사회·지배구조</small></button>
-            </div>
-          </section>
-          {collectionKind==="ghg"?<>
-            <div className="collection-task-filter" role="group" aria-label="온실가스 수집 업무 필터">
-              <button className={ghgCollectionTab==="input"?"active":""} onClick={()=>setGhgCollectionTab("input")}><Icon name="database" size={16}/>데이터 입력·현황</button>
-              <button className={ghgCollectionTab==="request"?"active":""} onClick={()=>setGhgCollectionTab("request")}><Icon name="calendar" size={16}/>요청·기간 설정</button>
-            </div>
-            {ghgCollectionTab==="input"
-              ? <Collection records={records} periods={periods} criteria={criteria} organizationNames={organizationNames} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />
-              : <Periods periods={periods} records={records} organizationNames={organizationNames} onChange={setPeriods} addAudit={addAudit} showToast={showToast}/>}
-          </>:<MetricCollection requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}
-        </>}
+        {activeView === "collection-request" && <><CollectionKindHeader kind={collectionKind} onChange={setCollectionKind} description="관리자가 수집 범위와 기간을 설정합니다." />{collectionKind==="ghg"?<Periods periods={periods} records={records} organizationNames={organizationNames} onChange={setPeriods} addAudit={addAudit} showToast={showToast}/>:<MetricCollection mode="request" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
+        {activeView === "metric-collection" && <><CollectionKindHeader kind={collectionKind} onChange={setCollectionKind} description="배정된 온실가스와 기타 ESG 데이터를 입력하고 제출합니다." />{collectionKind==="ghg"?<Collection records={records} periods={periods} criteria={criteria} organizationNames={organizationNames} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />:<MetricCollection mode="input" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
         {activeView === "reports" && <ReportBuilder reports={reports} records={records} targets={targets} indicators={indicators} standards={disclosureStandards} organizationNames={organizationNames} canManage={canManage} onChange={setReports} addAudit={addAudit} showToast={showToast} />}
         {activeView === "reference" && <ReferenceManagement factors={factors} formulas={formulas} activityMasters={activityMasters} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={disclosureStandards} regulations={regulations} suppliers={suppliers} productMaterials={productMaterials} transportRoutes={transportRoutes} disclosureMappings={disclosureMappings} indicators={indicators} organizations={organizations} canManage={canManage} onFactorsChange={setFactors} onFormulasChange={setFormulas} onActivityMastersChange={setActivityMasters} onAssetUnitsChange={setAssetUnits} onScope3FieldsChange={setScope3Fields} onStandardsChange={setDisclosureStandards} onRegulationsChange={setRegulations} onSuppliersChange={setSuppliers} onProductMaterialsChange={setProductMaterials} onTransportRoutesChange={setTransportRoutes} onDisclosureMappingsChange={setDisclosureMappings} addAudit={addAudit} showToast={showToast} />}
         {activeView === "audit" && <AuditLog items={audit} showToast={showToast} />}
@@ -1212,6 +1196,10 @@ export default function Home() {
 
 function NavButton({ item, active, onClick, count }: { item: { id: View; label: string; icon: IconName }; active: boolean; onClick: () => void; count?: number }) {
   return <Link className={`nav-button ${active ? "active" : ""}`} href={VIEW_PATHS[item.id]} aria-current={active?"page":undefined} onClick={event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;event.preventDefault();onClick();}}><Icon name={item.icon}/><span>{item.label}</span>{count?<em>{count}</em>:null}</Link>;
+}
+
+function CollectionKindHeader({kind,onChange,description}:{kind:"ghg"|"esg";onChange:(kind:"ghg"|"esg")=>void;description:string}) {
+  return <section className="collection-hub"><div><span>데이터 구분</span><strong>{description}</strong></div><div className="collection-kind-filter" role="group" aria-label="데이터 구분 필터"><button className={kind==="ghg"?"active":""} onClick={()=>onChange("ghg")}><Icon name="leaf" size={16}/><span>온실가스</span><small>Scope 1·2·3</small></button><button className={kind==="esg"?"active":""} onClick={()=>onChange("esg")}><Icon name="list" size={16}/><span>기타 ESG</span><small>환경·사회·지배구조</small></button></div></section>;
 }
 
 function NotificationPanel({ periods, records, targets, plans, onClose, onRead }: { periods: CollectionPeriod[]; records: ActivityRecord[]; targets: ReductionTarget[]; plans: ReductionPlan[]; onClose: () => void; onRead: () => void }) {
@@ -1284,6 +1272,14 @@ function Periods({ periods, records, organizationNames, onChange, addAudit, show
     addAudit(exists ? "수집기간 수정" : "수집기간 개설", period.name, `${period.dataFrom}~${period.dataTo} 귀속자료 / 제출 ${period.dueDate} / 검토 ${period.reviewDate}`);
     setEditing(null); showToast(exists ? "수집기간 설정을 수정했습니다." : "새 수집기간을 개설했습니다.");
   };
+  const remove = (period: CollectionPeriod) => {
+    const linked = records.filter(record=>record.collectionId===period.id);
+    if(linked.length){showToast(`연결된 활동자료 ${linked.length}건이 있어 삭제할 수 없습니다. 자료를 먼저 정리해 주세요.`);return;}
+    if(!window.confirm(`"${period.name}" 수집 요청을 삭제하시겠습니까?`))return;
+    onChange(periods.filter(item=>item.id!==period.id));
+    addAudit("수집기간 삭제",period.name,"연결된 활동자료가 없는 수집 요청을 삭제했습니다.");
+    setEditing(null);showToast("수집 요청을 삭제했습니다.");
+  };
   return <><PageHeader eyebrow="COLLECTION PERIOD" title="수집 기간 관리" description="귀속기간, 대상 법인·Scope, 제출·검토 마감과 잠금 상태를 운영합니다.">{canManage&&<button className="primary-button" onClick={() => setEditing("new")}><Icon name="plus" size={17}/>수집기간 개설</button>}</PageHeader>
     <section className="period-summary collection-summary"><SummaryTile label="수집 진행" value={periods.filter(item=>item.status==="수집중").length} suffix="건" icon="calendar" tone="green"/><SummaryTile label="검토 진행" value={periods.filter(item=>item.status==="검토중").length} suffix="건" icon="clock" tone="amber"/><SummaryTile label="예정" value={periods.filter(item=>item.status==="예정").length} suffix="건" icon="list"/><SummaryTile label="잠금 완료" value={periods.filter(item=>item.status==="잠금").length} suffix="건" icon="lock"/></section>
     <section className="period-grid">{periods.map(period => {
@@ -1291,18 +1287,18 @@ function Periods({ periods, records, organizationNames, onChange, addAudit, show
       const submitted = rows.filter(record => ["검토대기","확정"].includes(record.status)).length;
       const confirmed = rows.filter(record => record.status === "확정").length;
       const completion = rows.length ? Math.round(confirmed / rows.length * 100) : 0;
-      return <article className="card period-card" key={period.id}><div className="period-card-top"><div><span className={`status-badge ${periodTone(period.status)}`}><span className="status-dot"/>{period.status}</span><h2>{period.name}</h2><p>{period.description}</p></div>{canManage&&<button className="icon-button" onClick={()=>setEditing(period)} aria-label="기간 수정"><Icon name="edit" size={17}/></button>}</div>
+      return <article className="card period-card" key={period.id}><div className="period-card-top"><div><span className={`status-badge ${periodTone(period.status)}`}><span className="status-dot"/>{period.status}</span><h2>{period.name}</h2><p>{period.description}</p></div></div>
         <div className="period-dates"><div><span>귀속기간</span><strong>{period.dataFrom === period.dataTo ? period.dataFrom : `${period.dataFrom} ~ ${period.dataTo}`}</strong></div><div><span>수집기간</span><strong>{period.openDate} ~ {period.dueDate}</strong></div><div><span>검토마감</span><strong>{period.reviewDate}</strong></div></div>
         <div className="period-targets"><span>{period.cycle} 수집</span><span>{period.companies.length}개 법인</span><span>{period.scopes.join(" · ")}</span><span>{period.evidenceRequired ? "증빙 필수" : "증빙 선택"}</span></div>
         <div className="period-progress"><div><span>등록 {rows.length}건 · 제출 {submitted}건 · 확정 {confirmed}건</span><strong>{completion}%</strong></div><div className="progress-track"><span style={{width:`${completion}%`}}/></div></div>
-        {canManage&&<div className="period-actions">{period.status === "예정" && <button className="primary-button compact" onClick={()=>updateStatus(period,"수집중")}>수집 시작</button>}{period.status === "수집중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"검토중")}>제출 마감·검토 시작</button>}{period.status === "검토중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"마감")}>검토 완료·마감</button>}{period.status === "마감" && <button className="primary-button compact" onClick={()=>updateStatus(period,"잠금")}>확정자료 잠금</button>}{["마감","잠금"].includes(period.status) && <button className="secondary-button compact" onClick={()=>updateStatus(period,"수집중")}>기간 다시 열기</button>}<button className="secondary-button compact" onClick={()=>setEditing(period)}>설정 수정</button></div>}
+        {canManage&&<div className="period-actions">{period.status === "예정" && <button className="primary-button compact" onClick={()=>updateStatus(period,"수집중")}>수집 시작</button>}{period.status === "수집중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"검토중")}>제출 마감·검토 시작</button>}{period.status === "검토중" && <button className="primary-button compact" onClick={()=>updateStatus(period,"마감")}>검토 완료·마감</button>}{period.status === "마감" && <button className="primary-button compact" onClick={()=>updateStatus(period,"잠금")}>확정자료 잠금</button>}{["마감","잠금"].includes(period.status) && <button className="secondary-button compact" onClick={()=>updateStatus(period,"수집중")}>기간 다시 열기</button>}<button className="secondary-button compact" onClick={()=>setEditing(period)}><Icon name="edit" size={14}/>설정 수정</button><button className="danger-button compact" onClick={()=>remove(period)}><Icon name="trash" size={14}/>삭제</button></div>}
       </article>;
     })}</section>
-    {editing && <PeriodForm item={editing === "new" ? null : editing} existing={periods} organizationNames={organizationNames} onClose={()=>setEditing(null)} onSave={save}/>}
+    {editing && <PeriodForm item={editing === "new" ? null : editing} existing={periods} organizationNames={organizationNames} onClose={()=>setEditing(null)} onSave={save} onDelete={editing==="new"?undefined:()=>remove(editing)}/>}
   </>;
 }
 
-function PeriodForm({ item, existing, organizationNames, onClose, onSave }: { item: CollectionPeriod | null; existing: CollectionPeriod[]; organizationNames: string[]; onClose: () => void; onSave: (item: CollectionPeriod) => void }) {
+function PeriodForm({ item, existing, organizationNames, onClose, onSave, onDelete }: { item: CollectionPeriod | null; existing: CollectionPeriod[]; organizationNames: string[]; onClose: () => void; onSave: (item: CollectionPeriod) => void; onDelete?:()=>void }) {
   const nextId = `CP-${new Date().getFullYear()}-${String(existing.length + 1).padStart(2,"0")}`;
   const today = new Date().toISOString().slice(0, 10);
   const currentMonth = today.slice(0, 7);
@@ -1319,7 +1315,7 @@ function PeriodForm({ item, existing, organizationNames, onClose, onSave }: { it
     <div className="form-section"><h3><span>1</span>수집 기본정보</h3><div className="form-grid"><label className="full-span">수집기간명<input value={form.name} onChange={e=>{setAutoName(false);patch({name:e.target.value})}} placeholder="기간과 Scope에 따라 자동 작성됩니다." required/><small className="field-help">기간과 Scope를 바꾸면 자동으로 갱신되며, 직접 수정할 수도 있습니다.</small></label><label>수집 주기<select value={form.cycle} onChange={e=>patch({cycle:e.target.value as CollectionPeriod["cycle"]})}><option>월</option><option>분기</option><option>반기</option><option>연</option><option>수시</option></select></label><label>현재 상태<input value={form.status} readOnly className="readonly-input"/><small className="field-help">상태는 기간 카드의 단계별 버튼으로만 변경됩니다.</small></label><label>귀속 시작월<input type="month" value={form.dataFrom} onChange={e=>changePeriod("dataFrom",e.target.value)} required/></label><label>귀속 종료월<input type="month" value={form.dataTo} onChange={e=>changePeriod("dataTo",e.target.value)} required/></label></div></div>
     <div className="form-section"><h3><span>2</span>운영 일정</h3><div className="form-grid"><label>수집 시작일<input type="date" value={form.openDate} onChange={e=>patch({openDate:e.target.value})} required/></label><label>제출 마감일<input type="date" value={form.dueDate} onChange={e=>patch({dueDate:e.target.value})} required/></label><label>검토 마감일<input type="date" value={form.reviewDate} onChange={e=>patch({reviewDate:e.target.value})} required/></label><Toggle label="제출 시 증빙 필수" checked={form.evidenceRequired} onChange={value=>patch({evidenceRequired:value})}/></div></div>
     <div className="form-section"><h3><span>3</span>수집 대상</h3><div className="check-group"><strong>대상 Scope</strong><div>{(["Scope 1","Scope 2","Scope 3"] as Scope[]).map(scope=><label key={scope}><input type="checkbox" checked={form.scopes.includes(scope)} onChange={()=>toggleScope(scope)}/>{scope}</label>)}</div></div><div className="check-group"><strong>대상 법인</strong><div>{organizationNames.map(company=><label key={company}><input type="checkbox" checked={form.companies.includes(company)} onChange={()=>toggleCompany(company)}/>{company}</label>)}{!organizationNames.length&&<span>Supabase에 법인을 먼저 등록해 주세요.</span>}</div></div><label className="textarea-label">운영 설명<textarea value={form.description} onChange={e=>patch({description:e.target.value})} placeholder="수집 목적과 담당자가 확인할 사항을 적어 주세요."/></label>{error&&<p className="form-error"><Icon name="alert" size={14}/>{error}</p>}</div>
-    <div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button className="primary-button" type="submit"><Icon name="check" size={16}/>저장</button></div>
+    <div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>수집 요청 삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button className="primary-button" type="submit"><Icon name="check" size={16}/>저장</button></div></div>
   </form></Overlay>;
 }
 
@@ -1874,8 +1870,8 @@ function metricDerivedSummary(template:MetricInputTemplate,submission:MetricSubm
   return rows.length?`${rows.length}개 상세행`:"";
 }
 
-function MetricCollection({requests,submissions,indicators,organizations,canWrite,canManage,currentOrganization,defaultOwner,defaultDepartment,onRequestsChange,onSubmissionsChange,onIndicatorsChange,addAudit,showToast}:{requests:MetricRequest[];submissions:MetricSubmission[];indicators:Indicator[];organizations:Record<string,string[]>;canWrite:boolean;canManage:boolean;currentOrganization:string;defaultOwner:string;defaultDepartment:string;onRequestsChange:(items:MetricRequest[])=>void;onSubmissionsChange:(items:MetricSubmission[])=>void;onIndicatorsChange:(items:Indicator[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(message:string)=>void}){
-  const [workspaceTab,setWorkspaceTab]=useState<"collection"|"periods">("collection");
+function MetricCollection({mode,requests,submissions,indicators,organizations,canWrite,canManage,currentOrganization,defaultOwner,defaultDepartment,onRequestsChange,onSubmissionsChange,onIndicatorsChange,addAudit,showToast}:{mode:"input"|"request"|"review";requests:MetricRequest[];submissions:MetricSubmission[];indicators:Indicator[];organizations:Record<string,string[]>;canWrite:boolean;canManage:boolean;currentOrganization:string;defaultOwner:string;defaultDepartment:string;onRequestsChange:(items:MetricRequest[])=>void;onSubmissionsChange:(items:MetricSubmission[])=>void;onIndicatorsChange:(items:Indicator[])=>void;addAudit:(action:string,target:string,detail:string,actor?:string)=>void;showToast:(message:string)=>void}){
+  const workspaceTab=mode==="request"?"periods":"collection";
   const [selectedId,setSelectedId]=useState(requests.find(request=>request.status==="수집중")?.id??requests[0]?.id??"");
   const [requestModal,setRequestModal]=useState<MetricRequest|null|"new">(null);
   const [submissionModal,setSubmissionModal]=useState<{request:MetricRequest;indicator:Indicator;company:string;submission?:MetricSubmission}|null>(null);
@@ -1890,7 +1886,7 @@ function MetricCollection({requests,submissions,indicators,organizations,canWrit
     const exists=requests.some(item=>item.id===request.id);
     const saved={...request,id:exists?request.id:`MR-${Date.now()}`,updatedAt:nowLabel()};
     onRequestsChange(exists?requests.map(item=>item.id===saved.id?saved:item):[saved,...requests]);
-    setSelectedId(saved.id);setRequestModal(null);setWorkspaceTab("collection");
+    setSelectedId(saved.id);setRequestModal(null);
     addAudit(exists?"정량데이터 수집 요청 수정":"정량데이터 수집 요청 생성",saved.title,`${saved.companies.length}개 법인, ${saved.indicatorIds.length}개 지표 · ${saved.periodFrom}~${saved.periodTo}`);
     showToast(exists?"수집 기간과 요청 설정을 수정했습니다.":"새 수집 기간과 요청을 개설했습니다.");
   };
@@ -1924,11 +1920,10 @@ function MetricCollection({requests,submissions,indicators,organizations,canWrit
     downloadCsv("SEMS_ESG_metric_collection.csv",["수집요청","법인","사업장","기간","지표코드","지표명","수집양식","상세행","값","단위","담당자","부서","증빙","상태","설명"],expectedRows.map(row=>[selected.title,row.company,row.submission?.site??"",row.submission?.period??selected.periodTo,row.indicator?.code??"",row.indicator?.name??"",METRIC_TEMPLATE_LABELS[metricTemplateOf(row.indicator!)],row.submission?.detailRows?.length??0,row.submission?.value??"",row.indicator?.unit??"",row.submission?.owner??"",row.submission?.department??"",row.submission?.evidence??"",row.submission?.status??"미입력",row.submission?.description??""]));
     showToast("현재 수집 현황을 내려받았습니다.");
   };
-  return <><PageHeader eyebrow="ESG DATA COLLECTION" title="ESG 정량데이터 수집·기간 설정" description="수집 기간과 대상 법인·지표를 한 화면에서 설정하고, 폐기물·법정 의무교육 등 지표 특성에 맞는 양식으로 상세 데이터를 수집합니다.">{canManage&&<button className="secondary-button" onClick={addTemplates}><Icon name="list" size={17}/>표준 지표·양식 추가</button>}{selected&&workspaceTab==="collection"&&<button className="secondary-button" onClick={exportRows}><Icon name="download" size={17}/>수집현황 내보내기</button>}{canManage&&<button className="primary-button" onClick={()=>setRequestModal("new")} disabled={!indicators.length}><Icon name="plus" size={17}/>수집 기간·요청 추가</button>}</PageHeader>
-    <div className="metric-workspace-tabs"><button className={workspaceTab==="collection"?"active":""} onClick={()=>setWorkspaceTab("collection")}><Icon name="database" size={17}/><span><strong>수집 현황</strong><small>법인별 입력·검토·확정</small></span></button><button className={workspaceTab==="periods"?"active":""} onClick={()=>setWorkspaceTab("periods")}><Icon name="calendar" size={17}/><span><strong>기간·요청 설정</strong><small>수집 범위와 마감 관리</small></span></button></div>
+  return <><PageHeader eyebrow={mode==="review"?"ESG DATA REVIEW":mode==="request"?"ESG DATA REQUEST":"ESG DATA INPUT"} title={mode==="review"?"기타 ESG 데이터 검토·승인":mode==="request"?"기타 ESG 수집 요청":"기타 ESG 데이터 입력"} description={mode==="review"?"제출된 정량데이터와 증빙을 확인한 뒤 확정하거나 반려합니다.":mode==="request"?"대상 법인·지표와 수집 기간, 제출 마감을 설정합니다.":"배정된 환경·사회·지배구조 정량데이터를 입력하고 검토 요청으로 제출합니다."}>{mode==="request"&&canManage&&<button className="secondary-button" onClick={addTemplates}><Icon name="list" size={17}/>표준 지표·양식 추가</button>}{selected&&mode!=="request"&&<button className="secondary-button" onClick={exportRows}><Icon name="download" size={17}/>수집현황 내보내기</button>}{mode==="request"&&canManage&&<button className="primary-button" onClick={()=>setRequestModal("new")} disabled={!indicators.length}><Icon name="plus" size={17}/>수집 요청 추가</button>}</PageHeader>
     {workspaceTab==="periods"?<section className="card metric-period-card"><CardHeader title="수집 기간·요청" subtitle="별도 수집 기간 메뉴 없이 정량데이터 요청과 일정을 함께 관리합니다." action={canManage?<button className="outline-small" onClick={()=>setRequestModal("new")}><Icon name="plus" size={14}/>추가</button>:undefined}/><div className="table-scroll"><table className="data-table metric-period-table"><thead><tr><th>수집 요청</th><th>대상 기간</th><th>제출 마감</th><th>대상 범위</th><th>진행 상태</th><th>수정</th></tr></thead><tbody>{requests.map(request=><tr key={request.id}><td><strong>{request.title}</strong><span>{request.description||"별도 안내 없음"}</span></td><td><strong>{request.periodFrom} ~ {request.periodTo}</strong><span>{request.indicatorIds.length}개 지표</span></td><td>{request.dueDate}</td><td><strong>{request.companies.length}개 법인</strong><span>{request.companies.slice(0,2).join(", ")}{request.companies.length>2?` 외 ${request.companies.length-2}개`:""}</span></td><td><StatusBadge status={request.status}/></td><td>{canManage&&<button className="outline-small" onClick={()=>setRequestModal(request)}><Icon name="settings" size={14}/>설정</button>}</td></tr>)}</tbody></table>{!requests.length&&<div className="empty-state"><Icon name="calendar"/><strong>등록된 수집 기간이 없습니다.</strong><p>기간, 대상 법인과 지표를 묶어 첫 수집 요청을 만들어 주세요.</p></div>}</div></section>:<>
       <section className="metric-summary"><SummaryTile label="진행 중 요청" value={activeCount} suffix="건" icon="calendar" tone="green"/><SummaryTile label="등록 지표" value={indicators.filter(item=>item.active).length} suffix="개" icon="list"/><SummaryTile label="검토 대기" value={submissions.filter(item=>item.status==="검토대기").length} suffix="건" icon="clock" tone={submissions.some(item=>item.status==="검토대기")?"amber":"green"}/><SummaryTile label="확정 데이터" value={submissions.filter(item=>item.status==="확정").length} suffix="건" icon="check" tone="green"/></section>
-      {!requests.length?<section className="card metric-empty"><div className="empty-state"><Icon name="database"/><strong>개설된 ESG 정량데이터 수집 요청이 없습니다.</strong><p>{indicators.length?"대상 법인과 지표, 기간을 선택해 첫 수집 요청을 개설해 주세요.":"먼저 표준 지표를 추가하거나 ESG 지표 관리에서 필요한 지표를 등록해 주세요."}</p>{canManage&&<div className="empty-actions"><button className="secondary-button" onClick={addTemplates}><Icon name="list" size={16}/>표준 지표·양식 추가</button><button className="primary-button" onClick={()=>setRequestModal("new")} disabled={!indicators.length}><Icon name="plus" size={16}/>수집 요청 만들기</button></div>}</div></section>:<section className="metric-workspace"><aside className="card metric-request-list"><CardHeader title="수집 요청" subtitle="진행할 요청을 선택하세요." action={canManage?<button className="outline-small" onClick={()=>setRequestModal("new")}><Icon name="plus" size={14}/>추가</button>:undefined}/><div>{requests.map(request=>{const count=submissions.filter(item=>item.requestId===request.id&&item.status==="확정").length;const total=request.companies.length*request.indicatorIds.length;return <button key={request.id} className={request.id===selected?.id?"active":""} onClick={()=>setSelectedId(request.id)}><div><StatusBadge status={request.status}/><small>{request.dueDate} 마감</small></div><strong>{request.title}</strong><p>{request.companies.length}개 법인 · {request.indicatorIds.length}개 지표</p><span><i style={{width:`${total?Math.round(count/total*100):0}%`}}/></span></button>})}</div></aside>{selected&&<article className="card metric-detail"><div className="metric-detail-head"><div><div className="report-meta-line"><StatusBadge status={selected.status}/><em>{selected.periodFrom} ~ {selected.periodTo}</em><em>{selected.dueDate} 마감</em></div><h2>{selected.title}</h2><p>{selected.description||"별도 요청사항이 없습니다."}</p></div>{canManage&&<button className="secondary-button compact" onClick={()=>setRequestModal(selected)}><Icon name="settings" size={15}/>기간·요청 설정</button>}</div><div className="metric-progress-panel"><div><span>확정 진행률</span><strong>{completion}%</strong><div><i style={{width:`${completion}%`}}/></div></div><div><span>대상 법인</span><strong>{selected.companies.length}<small>개</small></strong></div><div><span>요청 지표</span><strong>{selected.indicatorIds.length}<small>개</small></strong></div><div><span>검토 대기</span><strong>{pending}<small>건</small></strong></div></div><div className="table-scroll"><table className="data-table metric-collection-table"><thead><tr><th>법인</th><th>요청 지표·양식</th><th>입력 기간</th><th className="align-right">제출값</th><th>담당 / 증빙</th><th>상태</th><th>작업</th></tr></thead><tbody>{expectedRows.map(row=>{const submission=row.submission;const indicator=row.indicator!;const template=metricTemplateOf(indicator);const canEdit=canWrite&&(canManage||!currentOrganization||row.company===currentOrganization)&&selected.status==="수집중"&&submission?.status!=="확정";return <tr key={`${row.company}-${indicator.id}`}><td><strong>{row.company}</strong><span>{submission?.site||"사업장 미입력"}</span></td><td><strong>{indicator.name}</strong><span>{indicator.code} · {indicator.cycle} 수집</span><em className={`metric-template-badge ${template.toLowerCase()}`}>{METRIC_TEMPLATE_LABELS[template]}</em></td><td>{submission?.period||selected.periodTo}</td><td className="align-right">{submission?<><strong>{formatNumber(submission.value,2)}</strong><span>{submission.unit}{metricDerivedSummary(template,submission)?` · ${metricDerivedSummary(template,submission)}`:""}</span></>:<span className="missing-value">미입력</span>}</td><td><strong>{submission?.owner||"담당자 미지정"}</strong><span>{submission?.evidence||"증빙 미연결"}</span></td><td>{submission?<><StatusBadge status={submission.status}/>{submission.rejectionReason&&<span className="rejection-inline">{submission.rejectionReason}</span>}</>:<StatusBadge status="미입력"/>}</td><td><div className="metric-row-actions">{canEdit&&<button className="outline-small" onClick={()=>setSubmissionModal({request:selected,indicator,company:row.company,submission})}><Icon name={submission?"edit":"plus"} size={14}/>{submission?"수정":"입력"}</button>}{canManage&&submission?.status==="검토대기"&&<><button className="approve-small" onClick={()=>changeStatus(submission,"확정")}>확정</button><button className="reject-small" onClick={()=>changeStatus(submission,"반려")}>반려</button></>}</div></td></tr>})}</tbody></table>{!expectedRows.length&&<div className="empty-state"><Icon name="list"/><strong>현재 계정에 배정된 수집 항목이 없습니다.</strong></div>}</div></article>}</section>}
+      {!requests.length?<section className="card metric-empty"><div className="empty-state"><Icon name="database"/><strong>개설된 ESG 정량데이터 수집 요청이 없습니다.</strong><p>관리자가 수집 요청을 개설하면 여기에 표시됩니다.</p></div></section>:<section className="metric-workspace"><aside className="card metric-request-list"><CardHeader title="수집 요청" subtitle="진행할 요청을 선택하세요."/><div>{requests.map(request=>{const count=submissions.filter(item=>item.requestId===request.id&&item.status==="확정").length;const total=request.companies.length*request.indicatorIds.length;return <button key={request.id} className={request.id===selected?.id?"active":""} onClick={()=>setSelectedId(request.id)}><div><StatusBadge status={request.status}/><small>{request.dueDate} 마감</small></div><strong>{request.title}</strong><p>{request.companies.length}개 법인 · {request.indicatorIds.length}개 지표</p><span><i style={{width:`${total?Math.round(count/total*100):0}%`}}/></span></button>})}</div></aside>{selected&&<article className="card metric-detail"><div className="metric-detail-head"><div><div className="report-meta-line"><StatusBadge status={selected.status}/><em>{selected.periodFrom} ~ {selected.periodTo}</em><em>{selected.dueDate} 마감</em></div><h2>{selected.title}</h2><p>{selected.description||"별도 요청사항이 없습니다."}</p></div></div><div className="metric-progress-panel"><div><span>확정 진행률</span><strong>{completion}%</strong><div><i style={{width:`${completion}%`}}/></div></div><div><span>대상 법인</span><strong>{selected.companies.length}<small>개</small></strong></div><div><span>요청 지표</span><strong>{selected.indicatorIds.length}<small>개</small></strong></div><div><span>검토 대기</span><strong>{pending}<small>건</small></strong></div></div><div className="table-scroll"><table className="data-table metric-collection-table"><thead><tr><th>법인</th><th>요청 지표·양식</th><th>입력 기간</th><th className="align-right">제출값</th><th>담당 / 증빙</th><th>상태</th><th>작업</th></tr></thead><tbody>{expectedRows.filter(row=>mode!=="review"||row.submission?.status==="검토대기").map(row=>{const submission=row.submission;const indicator=row.indicator!;const template=metricTemplateOf(indicator);const canEdit=mode==="input"&&canWrite&&(canManage||!currentOrganization||row.company===currentOrganization)&&selected.status==="수집중"&&submission?.status!=="확정";return <tr key={`${row.company}-${indicator.id}`}><td><strong>{row.company}</strong><span>{submission?.site||"사업장 미입력"}</span></td><td><strong>{indicator.name}</strong><span>{indicator.code} · {indicator.cycle} 수집</span><em className={`metric-template-badge ${template.toLowerCase()}`}>{METRIC_TEMPLATE_LABELS[template]}</em></td><td>{submission?.period||selected.periodTo}</td><td className="align-right">{submission?<><strong>{formatNumber(submission.value,2)}</strong><span>{submission.unit}{metricDerivedSummary(template,submission)?` · ${metricDerivedSummary(template,submission)}`:""}</span></>:<span className="missing-value">미입력</span>}</td><td><strong>{submission?.owner||"담당자 미지정"}</strong><span>{submission?.evidence||"증빙 미연결"}</span></td><td>{submission?<><StatusBadge status={submission.status}/>{submission.rejectionReason&&<span className="rejection-inline">{submission.rejectionReason}</span>}</>:<StatusBadge status="미입력"/>}</td><td><div className="metric-row-actions">{canEdit&&<button className="outline-small" onClick={()=>setSubmissionModal({request:selected,indicator,company:row.company,submission})}><Icon name={submission?"edit":"plus"} size={14}/>{submission?"수정":"입력"}</button>}{mode==="review"&&canManage&&submission?.status==="검토대기"&&<><button className="approve-small" onClick={()=>changeStatus(submission,"확정")}>승인·확정</button><button className="reject-small" onClick={()=>changeStatus(submission,"반려")}>반려</button></>}</div></td></tr>})}</tbody></table>{mode==="review"&&!expectedRows.some(row=>row.submission?.status==="검토대기")&&<div className="empty-state"><Icon name="check"/><strong>현재 요청에 검토 대기 중인 데이터가 없습니다.</strong></div>}</div></article>}</section>}
     </>}
     {requestModal&&<MetricRequestForm item={requestModal==="new"?null:requestModal} indicators={indicators.filter(item=>item.active)} organizationNames={Object.keys(organizations)} onClose={()=>setRequestModal(null)} onSave={saveRequest} onDelete={requestModal==="new"?undefined:()=>deleteRequest(requestModal)}/>} 
     {submissionModal&&<MetricSubmissionForm context={submissionModal} organizations={organizations} defaultOwner={defaultOwner} defaultDepartment={defaultDepartment} canManage={canManage} onClose={()=>setSubmissionModal(null)} onSave={saveSubmission}/>} 
