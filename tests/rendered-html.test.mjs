@@ -48,6 +48,23 @@ test("renders development preview metadata", async () => {
   );
   assert.equal(reportResponse.status, 200);
   assert.match(await reportResponse.text(), developmentPreviewMeta);
+
+  const referenceResponse = await worker.fetch(
+    new Request("http://localhost/reference-data", {
+      headers: { accept: "text/html" },
+    }),
+    {
+      ASSETS: {
+        fetch: async () => new Response("Not found", { status: 404 }),
+      },
+    },
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+  assert.equal(referenceResponse.status, 200);
+  assert.match(await referenceResponse.text(), developmentPreviewMeta);
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
@@ -77,9 +94,21 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /onPageReorder/);
   assert.match(page, /draggable=\{canManage\}/);
   assert.match(page, /드래그해서 페이지 순서 변경/);
-  assert.match(page, /fontSize:26/);
+  assert.match(page, /major:20,middle:12,minor:11,table:10/);
+  assert.match(page, /REPORT_BODY_SIZE=10/);
+  assert.match(page, /REPORT_TABLE_SIZE=8/);
+  assert.match(page, /REPORT_CAPTION_SIZE=7/);
+  assert.match(page, /가로형 · 현대차 보고서형 16:9/);
+  assert.match(page, /기준정보·규제 관리/);
+  assert.match(page, /Scope 3 범주별 입력항목/);
+  assert.match(page, /15개 범주 기본필드 생성/);
+  assert.match(page, /보고기준·공시항목/);
+  assert.match(page, /규제·준수 관리/);
+  assert.match(page, /DEFAULT_CALCULATION_FORMULAS/);
+  assert.match(page, /sems2-disclosure-standards/);
   assert.match(page, /const VIEW_PATHS: Record<View, string>/);
   assert.match(page, /reports: "\/reports"/);
+  assert.match(page, /reference: "\/reference-data"/);
   assert.match(page, /router\.push\(VIEW_PATHS\[view\]\)/);
   assert.match(page, /viewFromPathname\(pathname\)/);
   assert.match(page, /aria-current=\{active\?"page":undefined\}/);
@@ -92,7 +121,10 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(styles, /\.report-page-drag \{/);
   assert.match(styles, /\.report-page-item\.drag-before::before/);
   assert.match(styles, /max-width: 1780px/);
-  assert.match(styles, /width: min\(1180px,calc\(100vw - 310px\)\)/);
+  assert.match(styles, /aspect-ratio: 1153\.7 \/ 649\.134/);
+  assert.match(styles, /@page landscapeReport \{ size: 407mm 229mm;/);
+  assert.match(styles, /\.reference-layout \{/);
+  assert.match(styles, /\.scope3-reference-layout \{/);
   assert.match(styles, /\.plan-status-preview p \{ font-size: 13px;/);
   assert.match(styles, /\.data-table td \{ height: 78px;/);
 });
