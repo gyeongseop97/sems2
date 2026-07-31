@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChangeEvent, CSSProperties, DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, DragEvent as ReactDragEvent, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useSemsAuth, WORKSPACE_CHANGE_EVENT } from "@/components/auth-context";
 import {
   COMPLILAW_DISCLOSURE_MAPPINGS,
@@ -17,6 +17,14 @@ import {
   COMPLILAW_SCOPE3_FORMULAS,
   mergeMasterRows,
 } from "@/lib/complilaw-master-data";
+import {
+  buildGHGCoverage,
+  buildMetricCoverage,
+  countCoverage,
+  coverageDisplayStatus,
+  monthsForYear,
+} from "@/lib/collection-coverage";
+import type { CoverageItem, CoverageStatus } from "@/lib/collection-coverage";
 import { findCollectionRequestConflicts } from "@/lib/collection-request-conflicts";
 import type { CollectionRequestConflict } from "@/lib/collection-request-conflicts";
 import { DEFAULT_EMISSION_FACTORS, mergeDefaultEmissionFactors, SCOPE3_CATEGORIES, SCOPE_GUIDANCE } from "@/lib/emission-factor-library";
@@ -1056,6 +1064,7 @@ export default function Home() {
   const [modalOpen, setModalOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [collectionKind, setCollectionKind] = useState<"ghg"|"esg">("ghg");
+  const [collectionRequestView, setCollectionRequestView] = useState<"requests"|"coverage">("requests");
   const [reviewKind, setReviewKind] = useState<"ghg"|"esg">("ghg");
   const [editing, setEditing] = useState<ActivityRecord | null>(null);
   const [toast, setToast] = useState("");
@@ -1232,7 +1241,7 @@ export default function Home() {
         {activeView === "scope3" && <Scope3SupplyChain requests={scope3Requests} suppliers={suppliers} formulas={formulas} fields={scope3Fields} templates={diagnosticTemplates} assessments={supplyChainAssessments} organizations={organizations} canManage={canManage} onRequestsChange={setScope3Requests} onTemplatesChange={setDiagnosticTemplates} onAssessmentsChange={setSupplyChainAssessments} addAudit={addAudit} showToast={showToast} />}
         {activeView === "evidence" && <Evidence items={evidence} onChange={setEvidence} showToast={showToast} />}
         {activeView === "indicators" && <Indicators items={indicators} onChange={setIndicators} showToast={showToast} />}
-        {activeView === "collection-request" && <><CollectionKindHeader kind={collectionKind} onChange={setCollectionKind} description="관리자가 수집 범위와 기간을 설정합니다." />{collectionKind==="ghg"?<Periods periods={periods} records={records} organizationNames={organizationNames} onChange={setPeriods} addAudit={addAudit} showToast={showToast}/>:<MetricCollection mode="request" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
+        {activeView === "collection-request" && <><CollectionKindHeader kind={collectionKind} onChange={setCollectionKind} description="관리자가 수집 범위와 기간을 설정합니다." /><div className="collection-task-filter" role="tablist" aria-label="수집 요청 화면"><button role="tab" aria-selected={collectionRequestView==="requests"} className={collectionRequestView==="requests"?"active":""} onClick={()=>setCollectionRequestView("requests")}><Icon name="calendar" size={15}/>수집 요청</button><button role="tab" aria-selected={collectionRequestView==="coverage"} className={collectionRequestView==="coverage"?"active":""} onClick={()=>setCollectionRequestView("coverage")}><Icon name="dashboard" size={15}/>수집 커버리지</button></div>{collectionRequestView==="coverage"?<CollectionCoverage kind={collectionKind} periods={periods} records={records} metricRequests={metricRequests} metricSubmissions={metricSubmissions} indicators={indicators} organizationNames={organizationNames}/>:collectionKind==="ghg"?<Periods periods={periods} records={records} organizationNames={organizationNames} onChange={setPeriods} addAudit={addAudit} showToast={showToast}/>:<MetricCollection mode="request" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
         {activeView === "metric-collection" && <><CollectionKindHeader kind={collectionKind} onChange={setCollectionKind} description="배정된 온실가스와 기타 ESG 데이터를 입력하고 제출합니다." />{collectionKind==="ghg"?<Collection records={records} periods={periods} criteria={criteria} organizationNames={organizationNames} onNew={() => openForm()} onBulk={() => setBulkOpen(true)} onEdit={openForm} onChange={updateRecords} showToast={showToast} />:<MetricCollection mode="input" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
         {activeView === "reports" && <ReportBuilder reports={reports} records={records} targets={targets} indicators={indicators} standards={disclosureStandards} organizationNames={organizationNames} canManage={canManage} onChange={setReports} addAudit={addAudit} showToast={showToast} />}
         {activeView === "reference" && <ReferenceManagement factors={factors} formulas={formulas} activityMasters={activityMasters} assetUnits={assetUnits} scope3Fields={scope3Fields} standards={disclosureStandards} regulations={regulations} suppliers={suppliers} productMaterials={productMaterials} transportRoutes={transportRoutes} disclosureMappings={disclosureMappings} indicators={indicators} organizations={organizations} canManage={canManage} onFactorsChange={setFactors} onFormulasChange={setFormulas} onActivityMastersChange={setActivityMasters} onAssetUnitsChange={setAssetUnits} onScope3FieldsChange={setScope3Fields} onStandardsChange={setDisclosureStandards} onRegulationsChange={setRegulations} onSuppliersChange={setSuppliers} onProductMaterialsChange={setProductMaterials} onTransportRoutesChange={setTransportRoutes} onDisclosureMappingsChange={setDisclosureMappings} addAudit={addAudit} showToast={showToast} />}
@@ -1253,6 +1262,148 @@ function NavButton({ item, active, onClick, count }: { item: { id: View; label: 
 
 function CollectionKindHeader({kind,onChange,description}:{kind:"ghg"|"esg";onChange:(kind:"ghg"|"esg")=>void;description:string}) {
   return <section className="collection-hub"><div><span>데이터 구분</span><strong>{description}</strong></div><div className="collection-kind-filter" role="group" aria-label="데이터 구분 필터"><button className={kind==="ghg"?"active":""} onClick={()=>onChange("ghg")}><Icon name="leaf" size={16}/><span>온실가스</span><small>Scope 1·2·3</small></button><button className={kind==="esg"?"active":""} onClick={()=>onChange("esg")}><Icon name="list" size={16}/><span>기타 ESG</span><small>환경·사회·지배구조</small></button></div></section>;
+}
+
+const COVERAGE_STATUSES: readonly (CoverageStatus | "기한초과")[] = ["미요청", "미입력", "작성중", "검토대기", "반려", "확정", "기한초과"];
+type CoverageFilter = "전체" | CoverageStatus | "기한초과";
+
+function coverageTone(status: string) {
+  return {
+    미요청: "unrequested",
+    미입력: "missing",
+    작성중: "draft",
+    검토대기: "pending",
+    반려: "rejected",
+    확정: "confirmed",
+    기한초과: "overdue",
+  }[status] ?? "missing";
+}
+
+function groupCoverageByCell(items: CoverageItem<string | number>[]) {
+  const grouped = new Map<string, CoverageItem<string | number>[]>();
+  items.forEach(item => {
+    const key = `${item.month}|${item.company}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), item]);
+  });
+  return grouped;
+}
+
+function CollectionCoverage({
+  kind,
+  periods,
+  records,
+  metricRequests,
+  metricSubmissions,
+  indicators,
+  organizationNames,
+}: {
+  kind: "ghg" | "esg";
+  periods: CollectionPeriod[];
+  records: ActivityRecord[];
+  metricRequests: MetricRequest[];
+  metricSubmissions: MetricSubmission[];
+  indicators: Indicator[];
+  organizationNames: string[];
+}) {
+  const currentYear = String(new Date().getFullYear());
+  const availableYears = useMemo(() => [...new Set([
+    currentYear,
+    ...periods.flatMap(period => [period.dataFrom.slice(0, 4), period.dataTo.slice(0, 4)]),
+    ...metricRequests.flatMap(request => [request.periodFrom.slice(0, 4), request.periodTo.slice(0, 4)]),
+  ].filter(Boolean))].sort((a, b) => b.localeCompare(a)), [currentYear, metricRequests, periods]);
+  const [requestedYear, setRequestedYear] = useState(currentYear);
+  const [requestedTarget, setRequestedTarget] = useState("all");
+  const [requestedStatus, setRequestedStatus] = useState<CoverageFilter>("전체");
+  const year = availableYears.includes(requestedYear) ? requestedYear : availableYears[0] ?? currentYear;
+  const companies = useMemo(() => [...new Set([
+    ...organizationNames,
+    ...periods.flatMap(period => period.companies),
+    ...metricRequests.flatMap(request => request.companies),
+  ])].sort((a, b) => a.localeCompare(b, "ko")), [metricRequests, organizationNames, periods]);
+  const targetOptions = useMemo(() => kind === "ghg"
+    ? (["Scope 1", "Scope 2", "Scope 3"] as Scope[]).map(scope => ({ id: scope, label: scope, cycle: "월" }))
+    : indicators.filter(indicator => indicator.active).map(indicator => ({ id: String(indicator.id), label: `${indicator.code} · ${indicator.name}`, cycle: indicator.cycle })), [indicators, kind]);
+  const target = requestedTarget === "all" || targetOptions.some(option => option.id === requestedTarget) ? requestedTarget : "all";
+  const today = new Date().toISOString().slice(0, 10);
+  const coverageItems: CoverageItem<string | number>[] = useMemo(() => kind === "ghg"
+    ? buildGHGCoverage({
+      year,
+      companies,
+      targetIds: targetOptions.map(option => option.id as Scope),
+      requests: periods.map(period => ({
+        id: period.id,
+        periodFrom: period.dataFrom,
+        periodTo: period.dataTo,
+        dueDate: period.dueDate,
+        companies: period.companies,
+        targetIds: period.scopes,
+      })),
+      records: records.map(record => ({
+        requestId: record.collectionId,
+        company: record.company,
+        month: record.period,
+        targetId: record.scope,
+        status: record.status,
+        active: record.active,
+      })),
+      today,
+    })
+    : buildMetricCoverage({
+      year,
+      companies,
+      targetIds: targetOptions.map(option => Number(option.id)),
+      targetCycles: Object.fromEntries(targetOptions.map(option => [Number(option.id), option.cycle])),
+      requests: metricRequests.map(request => ({
+        id: request.id,
+        periodFrom: request.periodFrom,
+        periodTo: request.periodTo,
+        dueDate: request.dueDate,
+        companies: request.companies,
+        targetIds: request.indicatorIds,
+      })),
+      submissions: metricSubmissions.map(submission => ({
+        requestId: submission.requestId,
+        company: submission.company,
+        month: submission.period,
+        targetId: submission.indicatorId,
+        status: submission.status,
+      })),
+      today,
+    }), [companies, kind, metricRequests, metricSubmissions, periods, records, targetOptions, today, year]);
+  const targetItems = useMemo(() => target === "all" ? coverageItems : coverageItems.filter(item => String(item.targetId) === target), [coverageItems, target]);
+  const counts = countCoverage(targetItems);
+  const filteredItems = useMemo(() => requestedStatus === "전체"
+    ? targetItems
+    : requestedStatus === "기한초과"
+      ? targetItems.filter(item => item.overdue)
+      : targetItems.filter(item => item.status === requestedStatus), [requestedStatus, targetItems]);
+  const targetLabels = useMemo(() => new Map(targetOptions.map(option => [option.id, option.label])), [targetOptions]);
+  const targetItemsByCell = useMemo(() => groupCoverageByCell(targetItems), [targetItems]);
+  const filteredItemsByCell = useMemo(() => groupCoverageByCell(filteredItems), [filteredItems]);
+  const targetLabel = (targetId: string | number) => targetLabels.get(String(targetId)) ?? String(targetId);
+
+  return <><PageHeader eyebrow="COLLECTION COVERAGE" title="수집 커버리지 현황" description="연도·월·법인·수집 항목별로 요청 누락과 입력·검토·확정 상태를 확인합니다."/>
+    <section className="coverage-summary" aria-label="수집 커버리지 상태 요약">
+      <button className={requestedStatus==="전체"?"active":""} onClick={()=>setRequestedStatus("전체")}><span>전체 대상</span><strong>{targetItems.length}<small>건</small></strong></button>
+      {COVERAGE_STATUSES.map(status=><button className={`${coverageTone(status)} ${requestedStatus===status?"active":""}`} key={status} onClick={()=>setRequestedStatus(status)}><span>{status==="반려"?"보완 요청":status}</span><strong>{counts[status]}<small>건</small></strong></button>)}
+    </section>
+    <section className="card coverage-workspace">
+      <div className="coverage-toolbar"><div><h2>{year}년 {kind==="ghg"?"온실가스":"기타 ESG"} 수집 지도</h2><p>미요청은 요청 범위에서 빠진 항목이며, 기한 초과는 제출 마감 후에도 확정되지 않은 항목입니다.</p></div><div className="coverage-filters"><label><span>연도</span><select value={year} onChange={event=>setRequestedYear(event.target.value)}>{availableYears.map(item=><option key={item}>{item}</option>)}</select></label><label><span>수집 항목</span><select value={target} onChange={event=>setRequestedTarget(event.target.value)}><option value="all">전체 {kind==="ghg"?"Scope":"활성 지표"}</option>{targetOptions.map(option=><option value={option.id} key={option.id}>{option.label} · {option.cycle}</option>)}</select></label></div></div>
+      <div className="coverage-legend">{COVERAGE_STATUSES.map(status=><span key={status}><i className={coverageTone(status)}/>{status==="반려"?"보완 요청":status}</span>)}</div>
+      {!companies.length||!targetOptions.length?<div className="empty-state coverage-empty"><Icon name="dashboard"/><strong>커버리지를 계산할 기준정보가 없습니다.</strong><p>{!companies.length?"시스템 설정에서 법인·사업장을 먼저 등록해 주세요.":"ESG 지표 관리에서 사용 중인 지표를 등록해 주세요."}</p></div>:<div className="coverage-matrix-scroll"><table className="coverage-matrix"><thead><tr><th>귀속월</th>{companies.map(company=><th key={company}>{company}</th>)}</tr></thead><tbody>{monthsForYear(year).map(month=><tr key={month}><th><strong>{Number(month.slice(-2))}월</strong><span>{month}</span></th>{companies.map(company=>{
+        const cellKey=`${month}|${company}`;
+        const allCellItems=targetItemsByCell.get(cellKey)??[];
+        const cellItems=filteredItemsByCell.get(cellKey)??[];
+        const displayItems=requestedStatus==="전체"?allCellItems:cellItems;
+        if(!displayItems.length)return <td key={company} className="coverage-cell empty"><span>{allCellItems.length?"조건 없음":"해당 없음"}</span></td>;
+        const displayStatus=coverageDisplayStatus(displayItems);
+        const confirmed=allCellItems.filter(item=>item.status==="확정").length;
+        const details=allCellItems.map(item=>`${targetLabel(item.targetId)}: ${item.overdue?`기한 초과 (${item.status})`:item.status}`).join("\n");
+        return <td key={company} className={`coverage-cell ${coverageTone(displayStatus)}`} title={details}><strong>{displayStatus==="반려"?"보완 요청":displayStatus}</strong><span>{target==="all"?`확정 ${confirmed}/${allCellItems.length}`:`${displayItems.length}건 · ${targetLabel(displayItems[0].targetId)}`}</span></td>;
+      })}</tr>)}</tbody></table></div>}
+      <footer className="coverage-guide"><span><Icon name="alert" size={15}/>상태 카드를 누르면 해당 항목만 표에서 강조됩니다.</span><span>기타 ESG는 지표의 월·분기·반기·연 수집 주기를 반영합니다.</span></footer>
+    </section>
+  </>;
 }
 
 function NotificationPanel({ periods, records, targets, plans, onClose, onRead }: { periods: CollectionPeriod[]; records: ActivityRecord[]; targets: ReductionTarget[]; plans: ReductionPlan[]; onClose: () => void; onRead: () => void }) {
