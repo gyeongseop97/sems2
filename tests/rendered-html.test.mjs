@@ -85,11 +85,12 @@ test("renders development preview metadata", async () => {
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
-  const [page, styles, factorLibrary, requestConflicts] = await Promise.all([
+  const [page, styles, factorLibrary, requestConflicts, collectionCoverage] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../lib/emission-factor-library.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/collection-request-conflicts.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/collection-coverage.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /감축목표·이행계획/);
@@ -105,6 +106,13 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /disabled=\{Boolean\(conflicts\.length\)\}/);
   assert.match(requestConflicts, /request\.id === candidate\.id/);
   assert.match(requestConflicts, /months\.length \* companies\.length \* targetIds\.length/);
+  assert.match(page, /수집 커버리지 현황/);
+  assert.match(page, /미요청은 요청 범위에서 빠진 항목/);
+  assert.match(page, /기타 ESG는 지표의 월·분기·반기·연 수집 주기를 반영합니다/);
+  assert.match(collectionCoverage, /buildGHGCoverage/);
+  assert.match(collectionCoverage, /buildMetricCoverage/);
+  assert.match(collectionCoverage, /monthsForCycle/);
+  assert.match(styles, /\.coverage-matrix/);
   assert.match(page, /폐기물 구분/);
   assert.match(page, /법정 의무교육/);
   assert.match(page, /지표 특성에 맞춰 상세 입력 항목과 자동 집계 방식을 선택합니다/);
