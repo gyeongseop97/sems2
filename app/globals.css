@@ -1945,6 +1945,7 @@ body.report-editor-open { overflow: hidden; }
 }
 .metric-template-badge.waste { background: #f5f1e8; color: #755318; }
 .metric-template-badge.breakdown { background: #edf7f3; color: #247158; }
+.metric-template-badge.fixed { background: #e8f5ef; color: #17664d; }
 .metric-template-badge.training { background: #eef2fb; color: #385d9d; }
 .metric-template-badge.water { background: #eaf7fb; color: #206b82; }
 .metric-template-badge.air { background: #f0f2f4; color: #58636d; }
@@ -1962,6 +1963,20 @@ body.report-editor-open { overflow: hidden; }
   gap: 16px;
 }
 .metric-detail-editor-head p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; }
+.metric-fixed-rows { display: grid; gap: 8px; }
+.metric-fixed-rows > label {
+  display: grid;
+  grid-template-columns: 32px minmax(180px, 1fr) minmax(190px, 260px);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfc;
+}
+.metric-fixed-rows > label > strong { color: #344a42; font-size: 13px; }
+.metric-fixed-summary { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border-radius: 10px; background: #edf7f3; color: #41675b; font-size: 12px; }
+.metric-fixed-summary strong { color: #17664d; }
 .metric-detail-rows { display: grid; gap: 10px; }
 .metric-detail-row {
   display: grid;
@@ -2018,6 +2033,7 @@ body.report-editor-open { overflow: hidden; }
 .metric-detail-total strong small { font-size: 12px; }
 .metric-detail-total em { color: #6c817a; font-size: 12px; font-style: normal; }
 .metric-submission-meta { margin-top: 18px; }
+.report-linked-table td small { margin-top: 2px; text-align: left; }
 .target-baseline-grid .calculated-field { min-height: 102px; }
 .target-allocation-toggle {
   display: grid;

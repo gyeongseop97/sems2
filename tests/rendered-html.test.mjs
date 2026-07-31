@@ -121,9 +121,14 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /법정 의무교육/);
   assert.match(page, /엑셀·GRI 지표 복원/);
   assert.match(page, /지표명, GRI 코드, 담당부서 검색/);
-  assert.match(page, /BREAKDOWN:"세분 항목"/);
+  assert.match(page, /FIXED:"고정 세부값"/);
+  assert.match(page, /FixedMetricDetailEditor/);
+  assert.match(page, /normalizeMetricSubmissions/);
   assert.match(griCatalog, /RAW_SUPPLEMENTAL_GRI_INDICATORS/);
   assert.match(griCatalog, /세원정공 SR 정량데이터 수집툴 ver\.2\.0/);
+  assert.match(griCatalog, /인권 교육 이수 현황/);
+  assert.match(griCatalog, /고객만족\(불량건수\)/);
+  assert.match(styles, /\.metric-fixed-rows/);
   assert.match(page, /지표 특성에 맞춰 상세 입력 항목과 자동 집계 방식을 선택합니다/);
   assert.match(page, /Scope 1·2 기준연도 배출량/);
   assert.match(page, /균등 배분/);
