@@ -1,3 +1,5 @@
+import { collectionTaskKey, parseCollectionTaskKey } from "./collection-task-expansion";
+
 export type CoverageStatus = "미요청" | "미입력" | "작성중" | "검토대기" | "반려" | "확정";
 
 export type CoverageItem<TTarget extends string | number> = {
@@ -16,6 +18,7 @@ type GHGRequest<TTarget extends string> = {
   dueDate: string;
   companies: string[];
   targetIds: TTarget[];
+  taskKeys?: string[];
 };
 
 type GHGRecord<TTarget extends string> = {
@@ -34,6 +37,7 @@ type MetricRequest<TTarget extends number> = {
   dueDate: string;
   companies: string[];
   targetIds: TTarget[];
+  taskKeys?: string[];
 };
 
 type MetricSubmission<TTarget extends number> = {
@@ -62,11 +66,14 @@ export function monthsForCycle(year: string, cycle: string, requestedMonths: str
 }
 
 function requestIncludes<TTarget extends string | number>(
-  request: { periodFrom: string; periodTo: string; companies: string[]; targetIds: TTarget[] },
+  request: { periodFrom: string; periodTo: string; companies: string[]; targetIds: TTarget[]; taskKeys?: string[] },
   month: string,
   company: string,
   targetId: TTarget,
 ) {
+  if (request.taskKeys !== undefined) {
+    return request.taskKeys.includes(collectionTaskKey(company, targetId, month));
+  }
   return request.periodFrom <= month
     && request.periodTo >= month
     && request.companies.includes(company)
@@ -148,7 +155,14 @@ export function buildMetricCoverage<TTarget extends number>({
   return targetIds.flatMap(targetId => {
     const requestedMonths = requests
       .filter(request => request.targetIds.includes(targetId))
-      .flatMap(request => monthsForYear(year).filter(month => request.periodFrom <= month && request.periodTo >= month));
+      .flatMap(request => request.taskKeys === undefined
+        ? monthsForYear(year).filter(month => request.periodFrom <= month && request.periodTo >= month)
+        : request.taskKeys.flatMap(key => {
+          const parsed = parseCollectionTaskKey(key);
+          return parsed && parsed.targetId === String(targetId) && parsed.period.startsWith(`${year}-`)
+            ? [parsed.period]
+            : [];
+        }));
     return monthsForCycle(year, targetCycles[targetId] ?? "월", requestedMonths).flatMap(month => companies.map(company => {
     const matchingRequests = requests.filter(request => requestIncludes(request, month, company, targetId));
     if (!matchingRequests.length) {
