@@ -85,12 +85,12 @@ test("renders development preview metadata", async () => {
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
-  const [page, styles, factorLibrary, requestConflicts, collectionCoverage] = await Promise.all([
+  const [page, styles, factorLibrary, collectionCoverage, taskExpansion] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../lib/emission-factor-library.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/collection-request-conflicts.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/collection-coverage.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/collection-task-expansion.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /감축목표·이행계획/);
@@ -101,11 +101,14 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /ESG 정량데이터 수집/);
   assert.match(page, /label: "수집 요청"/);
   assert.match(page, /label: "데이터 입력"/);
-  assert.match(page, /기존 수집 요청과 대상이 겹칩니다/);
-  assert.match(page, /중복 대상 확인 필요/);
-  assert.match(page, /disabled=\{Boolean\(conflicts\.length\)\}/);
-  assert.match(requestConflicts, /request\.id === candidate\.id/);
-  assert.match(requestConflicts, /months\.length \* companies\.length \* targetIds\.length/);
+  assert.match(page, /세부 수집 항목 자동 전개/);
+  assert.match(page, /기존 요청 제외/);
+  assert.match(page, /확정 완료 제외/);
+  assert.match(page, /taskKeys/);
+  assert.match(taskExpansion, /periodsForCollectionCycle/);
+  assert.match(taskExpansion, /buildMetricCollectionTasks/);
+  assert.match(taskExpansion, /buildGHGCollectionTasks/);
+  assert.match(taskExpansion, /classifyCollectionTasks/);
   assert.match(page, /수집 커버리지 현황/);
   assert.match(page, /미요청은 요청 범위에서 빠진 항목/);
   assert.match(page, /기타 ESG는 지표의 월·분기·반기·연 수집 주기를 반영합니다/);
@@ -120,7 +123,13 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /균등 배분/);
   assert.match(page, /수동 입력/);
   assert.match(page, /지속가능경영보고서 작성/);
-  assert.match(page, /확정 ESG 정량데이터 자동 연결/);
+  assert.match(page, /정량지표를 선택하세요/);
+  assert.match(page, /표시 연도/);
+  assert.match(page, /dataYears/);
+  assert.match(page, /기본값은 보고서 연도 기준 최근 3개년입니다/);
+  assert.doesNotMatch(page, /확정된 SEMS 데이터를 자동으로 연결합니다/);
+  assert.doesNotMatch(page, /확정 ESG 정량데이터 자동 연결/);
+  assert.doesNotMatch(page, /SEMS 데이터 표/);
   assert.match(page, /배출계수·산정기준/);
   assert.match(page, /요소를 끌어 이동하고 우측 아래 핸들로 크기를 조절합니다/);
   assert.match(page, /데이터 표/);
