@@ -7,6 +7,7 @@ import {
   coverageDisplayStatus,
   monthsForCycle,
 } from "../lib/collection-coverage";
+import { collectionTaskKey } from "../lib/collection-task-expansion";
 
 test("greenhouse-gas coverage separates requested, missing, confirmed, and overdue items", () => {
   const items = buildGHGCoverage({
@@ -71,4 +72,32 @@ test("metric coverage follows each indicator collection cycle", () => {
   assert.equal(items.filter(item => item.targetId === 1).length, 12);
   assert.equal(items.filter(item => item.targetId === 2).length, 1);
   assert.equal(items.find(item => item.targetId === 2)?.status, "확정");
+});
+
+test("stored task keys mark only the generated periods as requested", () => {
+  const items = buildMetricCoverage({
+    year: "2026",
+    companies: ["세원정공"],
+    targetIds: [1],
+    targetCycles: { 1: "월" },
+    requests: [{
+      id: "MR-2",
+      periodFrom: "2026-01",
+      periodTo: "2026-12",
+      dueDate: "2027-01-31",
+      companies: ["세원정공"],
+      targetIds: [1],
+      taskKeys: [
+        collectionTaskKey("세원정공", 1, "2026-07"),
+        collectionTaskKey("세원정공", 1, "2026-08"),
+      ],
+    }],
+    submissions: [],
+    today: "2026-07-31",
+  });
+
+  assert.equal(items.find(item => item.month === "2026-06")?.status, "미요청");
+  assert.equal(items.find(item => item.month === "2026-07")?.status, "미입력");
+  assert.equal(items.find(item => item.month === "2026-08")?.status, "미입력");
+  assert.equal(items.find(item => item.month === "2026-09")?.status, "미요청");
 });
