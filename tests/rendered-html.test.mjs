@@ -85,10 +85,11 @@ test("renders development preview metadata", async () => {
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
-  const [page, styles, factorLibrary] = await Promise.all([
+  const [page, styles, factorLibrary, requestConflicts] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../lib/emission-factor-library.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/collection-request-conflicts.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /감축목표·이행계획/);
@@ -97,10 +98,16 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /"내부 감축" \| "외부 감축" \| "비정량 과제"/);
   assert.match(page, /연간 절감비/);
   assert.match(page, /ESG 정량데이터 수집/);
-  assert.match(page, /ESG 정량데이터 수집·기간 설정/);
+  assert.match(page, /label: "수집 요청"/);
+  assert.match(page, /label: "데이터 입력"/);
+  assert.match(page, /기존 수집 요청과 대상이 겹칩니다/);
+  assert.match(page, /중복 대상 확인 필요/);
+  assert.match(page, /disabled=\{Boolean\(conflicts\.length\)\}/);
+  assert.match(requestConflicts, /request\.id === candidate\.id/);
+  assert.match(requestConflicts, /months\.length \* companies\.length \* targetIds\.length/);
   assert.match(page, /폐기물 구분/);
   assert.match(page, /법정 의무교육/);
-  assert.match(page, /지표 특성에 맞는 양식/);
+  assert.match(page, /지표 특성에 맞춰 상세 입력 항목과 자동 집계 방식을 선택합니다/);
   assert.match(page, /Scope 1·2 기준연도 배출량/);
   assert.match(page, /균등 배분/);
   assert.match(page, /수동 입력/);
