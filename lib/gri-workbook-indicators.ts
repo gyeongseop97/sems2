@@ -278,28 +278,119 @@ const supplementalWorkbookGroups = [...supplementalByFramework].map(([framework,
   return createGroupedSeed(13001 + index, code, `${topic} (${framework})`, sourceItems);
 });
 
-export const GRI_WORKBOOK_INDICATORS: GriWorkbookIndicatorSeed[] = [
-  ...originalWorkbookGroups,
-  ...supplementalWorkbookGroups,
+type SemanticGroupSpec = {
+  name: string;
+  ids: number[];
+};
+
+const EXCLUDED_GHG_GROUP_IDS = new Set([
+  12001, // Scope 1·2 배출량은 온실가스 수집에서 관리
+  12043, // 협력사 배출량은 Scope 3 수집에서 관리
+  13031, // GRI 305-1 Scope 1
+  13032, // GRI 305-2 Scope 2
+  13033, // GRI 305-3 Scope 3
+  13072, // GRI 102-7 Scope 3 데이터 품질
+]);
+
+const SEMANTIC_GROUPS: SemanticGroupSpec[] = [
+  { name: "온실가스 감축·목표 현황", ids: [12002, 13036, 13071] },
+  { name: "에너지 사용·효율·절감 현황", ids: [12003, 12004, 13021, 13022, 13023, 13034, 13073] },
+  { name: "가치사슬 에너지 현황", ids: [13074, 13075] },
+  { name: "환경·기후 투자 및 재무영향", ids: [12005, 12006, 13007] },
+  { name: "원부자재 사용·재생·회수 현황", ids: [12007, 13018, 13019, 13020] },
+  { name: "폐기물 발생 및 처리 현황", ids: [12008, 13039, 13040, 13041] },
+  { name: "용수 취수·사용·방류 현황", ids: [12009, 13024, 13025, 13035] },
+  { name: "대기오염물질 배출 현황", ids: [12010, 13037, 13038] },
+  { name: "생물다양성 영향·보전 현황", ids: [13026, 13027, 13028, 13029, 13030] },
+  { name: "온실가스 제거·탄소크레딧 현황", ids: [13069, 13070] },
+  { name: "경제가치 창출·분배 현황", ids: [12011, 12012, 13006, 13013] },
+  { name: "국가별 조세 현황", ids: [13017] },
+  { name: "임직원 구성·다양성·현지채용 현황", ids: [12013, 12014, 12015, 12016, 12017, 13001, 13002, 13010, 13051] },
+  { name: "임직원 교육 현황", ids: [12019, 13049] },
+  { name: "성과평가·보수·임금 현황", ids: [12020, 12021, 12022, 13009, 13050, 13052] },
+  { name: "복리후생·건강·일가정양립 현황", ids: [12023, 12024, 12025, 12026, 13008, 13044] },
+  { name: "노사관계·소통 현황", ids: [12027, 13005, 13045] },
+  { name: "인권·고충·차별 사건 현황", ids: [12028, 12033, 13053, 13054, 13055, 13056] },
+  { name: "임직원 제안·조직문화 현황", ids: [12029] },
+  { name: "산업안전보건·재해 현황", ids: [12030, 12031, 13046, 13047, 13048] },
+  { name: "지역사회 공헌·영향 현황", ids: [12037, 12038, 13011, 13057, 13058] },
+  { name: "협력사 현황·ESG 평가·지원", ids: [12039, 12040, 12041, 12042, 12044, 12045, 13012, 13042, 13043, 13059, 13060] },
+  { name: "이사회·위원회 구성 및 운영 현황", ids: [12046, 12047, 12048, 12049, 12050, 13003] },
+  { name: "이사 보수·배당 현황", ids: [12051, 12052, 13004] },
+  { name: "윤리·반부패·준법 현황", ids: [12053, 12054, 12055, 12056, 13014, 13015, 13016] },
+  { name: "정보보호·개인정보보호 현황", ids: [12057, 12058, 12059, 12060, 13067] },
+  { name: "협회·공공정책 참여 현황", ids: [12061, 13061] },
+  { name: "제품·고객 책임 현황", ids: [13062, 13063, 13064, 13065, 13066] },
 ];
 
-export const GRI_WORKBOOK_INDICATOR_ALIASES: Record<number, GriWorkbookIndicatorAlias> =
-  Object.fromEntries(
-    GRI_WORKBOOK_INDICATORS.flatMap((indicator) =>
-      (indicator.detailItems ?? []).flatMap((detail) =>
-        detail.legacyIndicatorIds.map((legacyIndicatorId) => [
-          legacyIndicatorId,
-          { indicatorId: indicator.id, detailKey: detail.key },
-        ]),
-      ),
+function mergeGroupedSeeds(name: string, sourceItems: GriWorkbookIndicatorSeed[]): GriWorkbookIndicatorSeed {
+  const representative = sourceItems[0];
+  const detailItems = sourceItems.flatMap((item) => item.detailItems ?? []);
+  const frameworks = unique(sourceItems.flatMap((item) => item.frameworks));
+  const owners = unique(sourceItems.map((item) => item.owner));
+  return {
+    ...representative,
+    name,
+    unit: groupUnit(detailItems),
+    aggregation: "합계",
+    owner: owners.join("·"),
+    definition: `${name}에 해당하는 유사 정량값을 한 지표에서 수집합니다.`,
+    boundary: "법인과 사업장별로 입력하되 동일 주제의 값은 하나의 지표로 관리",
+    formula: "세부 항목별 제출값을 단위와 집계 방식에 따라 연도별 집계",
+    frameworks,
+    inputTemplate: "FIXED",
+    detailItems,
+  };
+}
+
+const preSemanticGroups = [...originalWorkbookGroups, ...supplementalWorkbookGroups];
+const semanticSourceIds = new Set(SEMANTIC_GROUPS.flatMap((group) => group.ids));
+const semanticWorkbookGroups = SEMANTIC_GROUPS.map((group) => {
+  const sourceItems = group.ids
+    .map((id) => preSemanticGroups.find((item) => item.id === id))
+    .filter((item): item is GriWorkbookIndicatorSeed => Boolean(item));
+  return mergeGroupedSeeds(group.name, sourceItems);
+});
+
+export const GRI_WORKBOOK_INDICATORS: GriWorkbookIndicatorSeed[] = [
+  ...semanticWorkbookGroups,
+  ...preSemanticGroups.filter((item) => !semanticSourceIds.has(item.id) && !EXCLUDED_GHG_GROUP_IDS.has(item.id)),
+];
+
+const groupedAliasTargets = new Map<number, GriWorkbookIndicatorAlias>();
+for (const indicator of GRI_WORKBOOK_INDICATORS) {
+  for (const detail of indicator.detailItems ?? []) {
+    for (const legacyIndicatorId of detail.legacyIndicatorIds) {
+      groupedAliasTargets.set(legacyIndicatorId, { indicatorId: indicator.id, detailKey: detail.key });
+    }
+  }
+}
+for (const group of preSemanticGroups) {
+  const target = GRI_WORKBOOK_INDICATORS.find((indicator) =>
+    (indicator.detailItems ?? []).some((detail) =>
+      (group.detailItems ?? []).some((sourceDetail) => sourceDetail.key === detail.key),
     ),
   );
+  const detailKey = group.detailItems?.[0]?.key;
+  if (target && detailKey) groupedAliasTargets.set(group.id, { indicatorId: target.id, detailKey });
+}
+
+export const GRI_WORKBOOK_INDICATOR_ALIASES: Record<number, GriWorkbookIndicatorAlias> =
+  Object.fromEntries(groupedAliasTargets);
+
+export const GRI_WORKBOOK_EXCLUDED_INDICATOR_IDS = [
+  ...EXCLUDED_GHG_GROUP_IDS,
+  ...preSemanticGroups
+    .filter((group) => EXCLUDED_GHG_GROUP_IDS.has(group.id))
+    .flatMap((group) => (group.detailItems ?? []).flatMap((detail) => detail.legacyIndicatorIds)),
+];
 
 export const GRI_WORKBOOK_INDICATOR_COUNTS = {
   sourceDataPoints: 425,
   total: GRI_WORKBOOK_INDICATORS.length,
-  original: originalWorkbookGroups.length,
-  supplemental: supplementalWorkbookGroups.length,
+  original: GRI_WORKBOOK_INDICATORS.filter((item) => item.code.startsWith("WB-")).length,
+  supplemental: GRI_WORKBOOK_INDICATORS.filter((item) => item.code.startsWith("GRI-")).length,
+  excludedGhG: GRI_WORKBOOK_EXCLUDED_INDICATOR_IDS.length,
   legacy: GRI_WORKBOOK_LEGACY_INDICATORS.length,
   detailPoints: GRI_WORKBOOK_INDICATORS.reduce((sum, item) => sum + (item.detailItems?.length ?? 0), 0),
   environment: GRI_WORKBOOK_INDICATORS.filter((item) => item.category === "환경").length,
@@ -307,3 +398,4 @@ export const GRI_WORKBOOK_INDICATOR_COUNTS = {
   governance: GRI_WORKBOOK_INDICATORS.filter((item) => item.category === "지배구조").length,
   future: GRI_WORKBOOK_LEGACY_INDICATORS.filter((item) => item.future).length,
 };
+

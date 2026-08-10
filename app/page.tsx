@@ -35,7 +35,7 @@ import {
 } from "@/lib/collection-task-expansion";
 import type { CollectionCycle, CollectionTask } from "@/lib/collection-task-expansion";
 import { DEFAULT_EMISSION_FACTORS, mergeDefaultEmissionFactors, SCOPE3_CATEGORIES, SCOPE_GUIDANCE } from "@/lib/emission-factor-library";
-import { GRI_WORKBOOK_INDICATORS, GRI_WORKBOOK_INDICATOR_ALIASES, GRI_WORKBOOK_INDICATOR_COUNTS } from "@/lib/gri-workbook-indicators";
+import { GRI_WORKBOOK_EXCLUDED_INDICATOR_IDS, GRI_WORKBOOK_INDICATORS, GRI_WORKBOOK_INDICATOR_ALIASES, GRI_WORKBOOK_INDICATOR_COUNTS } from "@/lib/gri-workbook-indicators";
 import type { GriWorkbookDetailSeed } from "@/lib/gri-workbook-indicators";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -2072,8 +2072,9 @@ const METRIC_CODE_REPLACEMENTS:Record<string,string>={
   "S-TRAIN-02":"S-TRAIN-01",
 };
 const LEGACY_WORKBOOK_INDICATOR_IDS=new Set(Object.keys(GRI_WORKBOOK_INDICATOR_ALIASES).map(Number));
+const EXCLUDED_GHG_METRIC_IDS=new Set(GRI_WORKBOOK_EXCLUDED_INDICATOR_IDS);
 function normalizeMetricIndicators(items:Indicator[]):Indicator[]{
-  const filtered=items.filter(item=>!REDUNDANT_METRIC_CODES.has(item.code)&&!LEGACY_WORKBOOK_INDICATOR_IDS.has(item.id));
+  const filtered=items.filter(item=>!REDUNDANT_METRIC_CODES.has(item.code)&&!LEGACY_WORKBOOK_INDICATOR_IDS.has(item.id)&&!EXCLUDED_GHG_METRIC_IDS.has(item.id));
   return filtered.map(item=>{
     if(item.code==="ENV-WASTE")return {...item,inputTemplate:"WASTE",definition:"사업장에서 발생한 폐기물 총량. 처리방법별 상세 입력으로 재활용량을 함께 집계합니다.",formula:"폐기물 처리량 합계(재활용 선택 행은 재활용량으로 별도 자동 집계)"};
     if(item.code==="ENV-WATER")return {...item,inputTemplate:"WATER",definition:"사업장 운영 과정에서 취수하거나 공급받은 전체 용수량",formula:"용수 구분별 사용량 합계"};
@@ -2117,16 +2118,17 @@ function calculateRecycledWaste(rows:MetricDetailRow[]):number{
   return rows.reduce((sum,row)=>row.values.treatmentMethod==="재활용"?sum+(Number(row.values.amount)||0):sum,0);
 }
 function normalizeMetricRequests(source:MetricRequest[],indicatorIdMap:Map<number,number>):MetricRequest[]{
-  return source.map(request=>{
-    const indicatorIds=[...new Set(request.indicatorIds.map(id=>indicatorIdMap.get(id)??id))];
+  return source.flatMap(request=>{
+    const indicatorIds=[...new Set(request.indicatorIds.filter(id=>!EXCLUDED_GHG_METRIC_IDS.has(id)).map(id=>indicatorIdMap.get(id)??id))];
     const taskKeys=request.taskKeys?.flatMap(key=>{
       const parsed=parseCollectionTaskKey(key);
       if(!parsed)return [];
       const legacyId=Number(parsed.targetId);
+      if(EXCLUDED_GHG_METRIC_IDS.has(legacyId))return [];
       const targetId=indicatorIdMap.get(legacyId)??legacyId;
       return [collectionTaskKey(parsed.company,targetId,parsed.period)];
     });
-    return {...request,indicatorIds,taskKeys:taskKeys?[...new Set(taskKeys)]:undefined};
+    return indicatorIds.length?[{...request,indicatorIds,taskKeys:taskKeys?[...new Set(taskKeys)]:undefined}]:[];
   });
 }
 function mergeFixedMetricRows(indicator:Indicator,currentRows:MetricDetailRow[],incomingRows:MetricDetailRow[]):MetricDetailRow[]{
@@ -2142,7 +2144,7 @@ function mergeFixedMetricRows(indicator:Indicator,currentRows:MetricDetailRow[],
 }
 function normalizeMetricSubmissions(source:MetricSubmission[],indicatorIdMap:Map<number,number>,indicators:Indicator[]):MetricSubmission[]{
   const indicatorById=new Map(indicators.map(indicator=>[indicator.id,indicator]));
-  const normalized=source.map(submission=>{
+  const normalized=source.filter(submission=>!EXCLUDED_GHG_METRIC_IDS.has(submission.indicatorId)).map(submission=>{
     const alias=GRI_WORKBOOK_INDICATOR_ALIASES[submission.indicatorId];
     const indicatorId=indicatorIdMap.get(submission.indicatorId)??submission.indicatorId;
     const indicator=indicatorById.get(indicatorId);
