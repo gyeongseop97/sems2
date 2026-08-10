@@ -8,14 +8,14 @@ import {
   GRI_WORKBOOK_LEGACY_INDICATORS,
 } from "../lib/gri-workbook-indicators";
 
-test("workbook rows are grouped into one SEMS indicator per business topic", () => {
-  assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.total, 35);
-  assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.original, 29);
-  assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.supplemental, 6);
+test("workbook rows keep distinct collection purposes and merge only duplicate tables", () => {
+  assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.total, 108);
+  assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.original, 59);
+  assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.supplemental, 49);
   assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.excludedGhG, 44);
   assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.legacy, 579);
   assert.equal(GRI_WORKBOOK_INDICATOR_COUNTS.future, 133);
-  assert.equal(GRI_WORKBOOK_INDICATORS.filter((item) => item.inputTemplate === "FIXED").length, 35);
+  assert.equal(GRI_WORKBOOK_INDICATORS.filter((item) => item.inputTemplate === "FIXED").length, 108);
 
   assert.equal(new Set(GRI_WORKBOOK_INDICATORS.map((item) => item.id)).size, GRI_WORKBOOK_INDICATORS.length);
   assert.equal(new Set(GRI_WORKBOOK_INDICATORS.map((item) => item.code)).size, GRI_WORKBOOK_INDICATORS.length);
@@ -40,7 +40,7 @@ test("customer satisfaction workbook tables remain exactly three indicators", ()
   ]);
 });
 
-test("non-GHG legacy workbook indicators migrate to a semantic indicator detail", () => {
+test("non-GHG legacy workbook indicators migrate to a restored or duplicate-grouped detail", () => {
   const excludedIds = new Set(GRI_WORKBOOK_EXCLUDED_INDICATOR_IDS);
   const groupedIds = new Set(GRI_WORKBOOK_INDICATORS.map((item) => item.id));
   for (const legacy of GRI_WORKBOOK_LEGACY_INDICATORS) {
@@ -54,11 +54,32 @@ test("non-GHG legacy workbook indicators migrate to a semantic indicator detail"
   }
 });
 
-test("similar original and supplemental indicators share one business-topic indicator", () => {
+test("only directly overlapping original and GRI tables share one indicator", () => {
   assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "용수 취수·사용·방류 현황" && item.detailItems?.length === 45));
   assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "폐기물 발생 및 처리 현황" && item.detailItems?.length === 37));
-  assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "임직원 구성·다양성·현지채용 현황" && item.detailItems?.length === 27));
-  assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "윤리·반부패·준법 현황" && item.detailItems?.length === 26));
+  assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "원부자재 사용·재생·회수 현황" && item.detailItems?.length === 9));
+  assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "임직원 현황" && item.detailItems?.length === 13));
+  assert.ok(GRI_WORKBOOK_INDICATORS.some((item) => item.name === "신규 협력사 ESG 심사 현황" && item.detailItems?.length === 6));
+});
+
+test("related but independently collected subjects stay separate", () => {
+  const names = new Set(GRI_WORKBOOK_INDICATORS.map((item) => item.name));
+  for (const name of [
+    "에너지 소비 현황",
+    "에너지 집약도",
+    "에너지 (GRI 302-4)",
+    "온실가스 감축목표 (GRI 102-4)",
+    "임직원 국적 현황",
+    "여성 관리자 현황",
+    "장애인 고용 현황",
+    "현지 채용 현황",
+    "다양성 (GRI 405-1)",
+    "비고용 근로자 (GRI 2-8)",
+    "이사회 운영 현황",
+    "감사위원회 운영 현황",
+    "윤리 제보·징계 현황",
+    "부패 리스크 평가 현황",
+  ]) assert.ok(names.has(name), `${name} 지표가 독립적으로 유지되어야 함`);
 });
 
 test("Scope 1, 2, and 3 collection stays out of other ESG metrics", () => {
@@ -69,4 +90,3 @@ test("Scope 1, 2, and 3 collection stays out of other ESG metrics", () => {
     assert.equal(GRI_WORKBOOK_INDICATOR_ALIASES[id], undefined);
   }
 });
-

@@ -2144,16 +2144,35 @@ function mergeFixedMetricRows(indicator:Indicator,currentRows:MetricDetailRow[],
 }
 function normalizeMetricSubmissions(source:MetricSubmission[],indicatorIdMap:Map<number,number>,indicators:Indicator[]):MetricSubmission[]{
   const indicatorById=new Map(indicators.map(indicator=>[indicator.id,indicator]));
-  const normalized=source.filter(submission=>!EXCLUDED_GHG_METRIC_IDS.has(submission.indicatorId)).map(submission=>{
+  const indicatorIdByDetailKey=new Map(indicators.flatMap(indicator=>(indicator.detailItems??[]).map(detail=>[detail.key,indicator.id] as const)));
+  const normalized=source.filter(submission=>!EXCLUDED_GHG_METRIC_IDS.has(submission.indicatorId)).flatMap<MetricSubmission>(submission=>{
     const alias=GRI_WORKBOOK_INDICATOR_ALIASES[submission.indicatorId];
     const indicatorId=indicatorIdMap.get(submission.indicatorId)??submission.indicatorId;
-    const indicator=indicatorById.get(indicatorId);
-    if(!indicator||metricTemplateOf(indicator)!=="FIXED")return {...submission,indicatorId};
-    let detailRows=mergeFixedMetricRows(indicator,[],submission.detailRows??[]);
-    if(alias){
-      detailRows=detailRows.map(row=>String(row.values.detailKey)===alias.detailKey?{...row,values:{...row.values,amount:submission.value}}:row);
+    const rowsByIndicatorId=new Map<number,MetricDetailRow[]>();
+    (submission.detailRows??[]).forEach(row=>{
+      const targetId=indicatorIdByDetailKey.get(String(row.values.detailKey??""));
+      if(targetId===undefined)return;
+      rowsByIndicatorId.set(targetId,[...(rowsByIndicatorId.get(targetId)??[]),row]);
+    });
+    if(rowsByIndicatorId.size){
+      return [...rowsByIndicatorId].flatMap(([targetId,targetRows],index)=>{
+        const indicator=indicatorById.get(targetId);
+        if(!indicator||metricTemplateOf(indicator)!=="FIXED")return [];
+        return [{
+          ...submission,
+          id:index===0?submission.id:-(Math.abs(submission.id%1_000_000_000)*1000+index),
+          indicatorId:targetId,
+          unit:indicator.unit,
+          value:0,
+          detailRows:mergeFixedMetricRows(indicator,[],targetRows),
+        }];
+      });
     }
-    return {...submission,indicatorId,unit:indicator.unit,value:0,detailRows};
+    const indicator=indicatorById.get(indicatorId);
+    if(!indicator||metricTemplateOf(indicator)!=="FIXED")return [{...submission,indicatorId}];
+    let detailRows=mergeFixedMetricRows(indicator,[],[]);
+    if(alias)detailRows=detailRows.map(row=>String(row.values.detailKey)===alias.detailKey?{...row,values:{...row.values,amount:submission.value}}:row);
+    return [{...submission,indicatorId,unit:indicator.unit,value:0,detailRows}];
   });
   const merged=new Map<string,MetricSubmission>();
   const statusRank:Record<MetricSubmissionStatus,number>={작성중:0,반려:1,검토대기:2,확정:3};
