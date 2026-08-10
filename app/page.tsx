@@ -2071,7 +2071,8 @@ const METRIC_CODE_REPLACEMENTS:Record<string,string>={
   "E-WASTE-02":"ENV-WASTE",
   "S-TRAIN-02":"S-TRAIN-01",
 };
-const LEGACY_WORKBOOK_INDICATOR_IDS=new Set(Object.keys(GRI_WORKBOOK_INDICATOR_ALIASES).map(Number));
+const CANONICAL_WORKBOOK_INDICATOR_IDS=new Set(GRI_WORKBOOK_INDICATORS.map(item=>item.id));
+const LEGACY_WORKBOOK_INDICATOR_IDS=new Set(Object.keys(GRI_WORKBOOK_INDICATOR_ALIASES).map(Number).filter(id=>!CANONICAL_WORKBOOK_INDICATOR_IDS.has(id)));
 const EXCLUDED_GHG_METRIC_IDS=new Set(GRI_WORKBOOK_EXCLUDED_INDICATOR_IDS);
 function normalizeMetricIndicators(items:Indicator[]):Indicator[]{
   const filtered=items.filter(item=>!REDUNDANT_METRIC_CODES.has(item.code)&&!LEGACY_WORKBOOK_INDICATOR_IDS.has(item.id)&&!EXCLUDED_GHG_METRIC_IDS.has(item.id));
