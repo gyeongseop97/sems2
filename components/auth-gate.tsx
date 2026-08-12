@@ -425,17 +425,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     canReview: canManage,
     canManage,
     isAdmin,
+    signOut,
   };
 
   return (
     <AuthContext.Provider value={contextValue}>
       {children}
-      <button className={styles.session} type="button" onClick={signOut} aria-label="로그아웃">
-        <div className={styles.sessionText}>
-          <strong>{profile.display_name || profile.email}</strong>
-          <span>{profile.organization?.name ?? "전체 법인"} · 로그아웃</span>
-        </div>
-      </button>
     </AuthContext.Provider>
   );
 }

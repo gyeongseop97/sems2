@@ -26,6 +26,7 @@ type AuthContextValue = {
   canReview: boolean;
   canManage: boolean;
   isAdmin: boolean;
+  signOut: () => Promise<void>;
 };
 
 export const WORKSPACE_CHANGE_EVENT = "sems2:workspace-change";

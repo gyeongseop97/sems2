@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import AdminUserLink from "@/components/admin-user-link";
 import AuthGate from "@/components/auth-gate";
 import "./globals.css";
 
@@ -20,7 +19,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="ko">
       <body>
         <AuthGate>
-          <AdminUserLink />
           {children}
         </AuthGate>
       </body>
