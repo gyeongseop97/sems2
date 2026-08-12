@@ -89,6 +89,14 @@ type ActivityRecord = {
   updatedAt: string;
 };
 
+type ActivityInputRow = {
+  key: string;
+  factorId: string;
+  usage: number;
+  evidence: string;
+  description: string;
+};
+
 type AuditEvent = {
   id: number;
   at: string;
@@ -901,7 +909,7 @@ const initialPlans: ReductionPlan[] = [
 ];
 */
 
-type IconName = "dashboard" | "database" | "leaf" | "file" | "list" | "settings" | "bell" | "search" | "plus" | "download" | "menu" | "close" | "chevron" | "check" | "clock" | "alert" | "building" | "upload" | "calendar" | "more" | "arrow" | "target" | "bolt" | "droplet" | "trash" | "edit" | "lock" | "refresh" | "logout";
+type IconName = "dashboard" | "database" | "leaf" | "file" | "list" | "settings" | "bell" | "search" | "plus" | "download" | "menu" | "close" | "chevron" | "check" | "clock" | "alert" | "building" | "upload" | "calendar" | "more" | "arrow" | "target" | "bolt" | "droplet" | "trash" | "edit" | "copy" | "lock" | "refresh" | "logout";
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, ReactNode> = {
@@ -921,7 +929,7 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
     more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>, arrow: <><path d="M5 12h14M13 6l6 6-6 6"/></>,
     target: <><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></>, bolt: <path d="m13 2-9 12h8l-1 8 9-12h-8l1-8Z"/>,
     droplet: <path d="M12 2s7 7.2 7 12a7 7 0 0 1-14 0c0-4.8 7-12 7-12Z"/>, trash: <><path d="M3 6h18M8 6V4h8v2M19 6l-1 15H6L5 6M10 11v6M14 11v6"/></>,
-    edit: <><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>,
+    edit: <><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></>, copy: <><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/></>, lock: <><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></>,
     refresh: <><path d="M20 7h-5V2"/><path d="M20 7a8 8 0 1 0 1 8"/></>,
     logout: <><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></>,
   };
@@ -1009,9 +1017,9 @@ function PageHeader({ eyebrow, title, description, children }: { eyebrow?: strin
   return <div className="page-heading"><div>{eyebrow && <div className="eyebrow">{eyebrow}</div>}<h1>{title}</h1><p>{description}</p></div>{children && <div className="page-actions">{children}</div>}</div>;
 }
 
-function Overlay({ title, eyebrow, description, onClose, children, size = "normal" }: { title: string; eyebrow: string; description?: string; onClose: () => void; children: ReactNode; size?: "normal" | "small" }) {
+function Overlay({ title, eyebrow, description, onClose, children, size = "normal" }: { title: string; eyebrow: string; description?: string; onClose: () => void; children: ReactNode; size?: "normal" | "small" | "wide" }) {
   useEffect(() => { const close = (e: KeyboardEvent) => e.key === "Escape" && onClose(); window.addEventListener("keydown", close); document.body.classList.add("menu-open"); return () => { window.removeEventListener("keydown", close); document.body.classList.remove("menu-open"); }; }, [onClose]);
-  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><div className={`record-modal ${size === "small" ? "small-modal" : ""}`} role="dialog" aria-modal="true"><div className="modal-header"><div><span>{eyebrow}</span><h2>{title}</h2>{description && <p>{description}</p>}</div><button className="icon-button" onClick={onClose} aria-label="닫기"><Icon name="close" /></button></div>{children}</div></div>;
+  return <div className="modal-backdrop" onMouseDown={e => e.target === e.currentTarget && onClose()}><div className={`record-modal ${size === "small" ? "small-modal" : size === "wide" ? "wide-modal" : ""}`} role="dialog" aria-modal="true"><div className="modal-header"><div><span>{eyebrow}</span><h2>{title}</h2>{description && <p>{description}</p>}</div><button className="icon-button" onClick={onClose} aria-label="닫기"><Icon name="close" /></button></div>{children}</div></div>;
 }
 
 export default function Home() {
@@ -1057,6 +1065,7 @@ export default function Home() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [collectionKind, setCollectionKind] = useState<"ghg"|"esg">("ghg");
   const [collectionRequestView, setCollectionRequestView] = useState<"requests"|"coverage">("requests");
@@ -1139,7 +1148,7 @@ export default function Home() {
     }
     window.dispatchEvent(new Event(WORKSPACE_CHANGE_EVENT));
   }, [periods, records, factors, formulas, activityMasters, assetUnits, scope3Fields, disclosureStandards, regulations, suppliers, productMaterials, transportRoutes, disclosureMappings, scope3Requests, diagnosticTemplates, supplyChainAssessments, evidence, indicators, metricRequests, metricSubmissions, reports, targets, plans, audit, criteria, noticePrefs, organizations, hydrated, canWrite]);
-  useEffect(() => { document.body.classList.toggle("menu-open", mobileMenu || modalOpen || bulkOpen || guideOpen); return () => document.body.classList.remove("menu-open"); }, [mobileMenu, modalOpen, bulkOpen, guideOpen]);
+  useEffect(() => { document.body.classList.toggle("menu-open", mobileMenu || modalOpen || batchOpen || bulkOpen || guideOpen); return () => document.body.classList.remove("menu-open"); }, [mobileMenu, modalOpen, batchOpen, bulkOpen, guideOpen]);
   useEffect(() => {
     if (routeForbidden) router.replace(VIEW_PATHS.dashboard);
   }, [routeForbidden, router]);
@@ -1160,6 +1169,7 @@ export default function Home() {
   };
   const openForm = (record?: ActivityRecord) => {
     if (!canWrite) { showToast("조회자는 자료를 등록하거나 수정할 수 없습니다."); return; }
+    if (!record) { setBatchOpen(true); return; }
     if (record?.status === "검토대기") { showToast("검토 대기 자료는 검토·승인 메뉴에서 처리해 주세요."); return; }
     if (record?.locked || periods.find(period => period.id === record?.collectionId)?.status === "잠금") {
       showToast("잠금된 자료는 수정할 수 없습니다. 수집 기간을 다시 열어야 합니다.");
@@ -1176,6 +1186,17 @@ export default function Home() {
     setRecords(exists ? records.map(item => item.id === saved.id ? saved : item) : [saved, ...records]);
     addAudit(exists ? "자료 수정" : "자료 등록", `${saved.company} · ${saved.source}`, `${saved.period} ${saved.scope} 활동자료 ${formatNumber(saved.usage, saved.usage < 100 ? 1 : 0)} ${saved.unit}`);
     setModalOpen(false); setEditing(null); showToast(exists ? "입력 자료를 수정했습니다." : "새 활동자료를 저장했습니다.");
+  };
+  const saveBatchRecords = (rows: ActivityRecord[]) => {
+    if (!canWrite) { showToast("조회자는 자료를 저장할 수 없습니다."); return; }
+    const createdAt = nowLabel();
+    const baseId = Date.now();
+    const saved = rows.map((row, index) => ({ ...row, id: baseId + index, createdAt, active: true, updatedAt: "방금 전" }));
+    setRecords(current => [...saved, ...current]);
+    const scope = saved[0]?.scope ?? "Scope 1";
+    addAudit("활동자료 일괄 등록", `${saved[0]?.company ?? ""} · ${scope}`, `${saved[0]?.period ?? ""} ${scope} 활동자료 ${saved.length}건을 입력표에서 함께 등록했습니다.`);
+    setBatchOpen(false);
+    showToast(`${scope} 활동자료 ${saved.length}건을 한꺼번에 저장했습니다.`);
   };
   const updateRecords = (next: ActivityRecord[], auditInfo?: { action: string; target: string; detail: string }) => { if(!canWrite){showToast("조회자는 자료를 변경할 수 없습니다.");return;} setRecords(next); if (auditInfo) addAudit(auditInfo.action, auditInfo.target, auditInfo.detail); };
   const importRecords = (rows: ActivityRecord[]) => {
@@ -1247,6 +1268,7 @@ export default function Home() {
         {activeView === "settings" && <Settings factors={factors} onFactorsChange={setFactors} criteria={criteria} onCriteriaChange={setCriteria} noticePrefs={noticePrefs} onNoticePrefsChange={setNoticePrefs} organizations={organizations} onOrganizationsChange={setOrganizations} onExport={exportBackup} onRestore={restoreBackup} showToast={showToast} />}
       </main>
     </div>
+    {batchOpen && <BatchRecordEntry records={records} periods={periods} factors={factors} organizations={organizations} defaultOwner={profile.display_name || profile.email || ""} defaultDepartment={profile.department || ""} onClose={() => setBatchOpen(false)} onSave={saveBatchRecords} showToast={showToast} />}
     {modalOpen && <RecordModal record={editing} records={records} periods={periods} factors={factors} criteria={criteria} organizations={organizations} defaultOwner={profile.display_name || profile.email || ""} defaultDepartment={profile.department || ""} onClose={() => { setModalOpen(false); setEditing(null); }} onSave={saveRecord} />}
     {bulkOpen && <BulkImport records={records} periods={periods} factors={factors} organizations={organizations} onClose={() => setBulkOpen(false)} onImport={importRecords} />}
     {guideOpen && <GuideModal onClose={() => setGuideOpen(false)} />}
@@ -3001,6 +3023,60 @@ function FactorForm({factor,onClose,onSave,onDelete}:{factor:EmissionFactor|null
     <div className="form-section"><h3><span>1</span>계수 기본정보</h3><div className="form-grid"><label>Scope<select value={form.scope} onChange={e=>patch({scope:e.target.value as Scope})}><option>Scope 1</option><option>Scope 2</option><option>Scope 3</option></select></label><label>지표 구분<select value={form.indicatorKind??"배출계수"} onChange={e=>patch({indicatorKind:e.target.value as EmissionFactor["indicatorKind"]})}><option>열량계수</option><option>지구온난화지수</option><option>산화계수</option><option>배출계수</option></select></label><label>계수 유형<select value={form.factorType??"공식계수"} onChange={e=>patch({factorType:e.target.value as EmissionFactor["factorType"]})}><option>공식계수</option><option>공급자계수</option><option>참고계수</option></select></label><label>활동자료 구분<input value={form.category} onChange={e=>patch({category:e.target.value})} required/></label><label>상세분류<input value={form.detailCategory??""} onChange={e=>patch({detailCategory:e.target.value})} placeholder="연료·온실가스·운송수단 등"/></label><label>배출원·계수명<input value={form.source} onChange={e=>patch({source:e.target.value})} required/></label><label>활동자료 단위<input value={form.activityUnit} onChange={e=>patch({activityUnit:e.target.value,factorUnit:`kgCO₂e/${e.target.value}`})} required/></label><label>계수값<input type="number" min="0" step="any" value={form.value||""} onChange={e=>patch({value:Number(e.target.value)})} required/></label><label>계수 단위<input value={form.factorUnit} onChange={e=>patch({factorUnit:e.target.value})} required/></label><label>기준국가<input value={form.country??""} onChange={e=>patch({country:e.target.value})}/></label><label>적용 연도<input value={form.year} onChange={e=>patch({year:e.target.value})} required/></label></div></div>
     <div className="form-section"><h3><span>2</span>산정방법·기준정보</h3><div className="form-grid"><label className="full-span">산정방법<input value={form.method??""} onChange={e=>patch({method:e.target.value})} placeholder="예: 활동량 × 순발열량 × 탄소배출계수 × 44/12" required/></label><label>적용 시작일<input type="date" value={form.validFrom??""} onChange={e=>patch({validFrom:e.target.value})}/></label><label>적용 종료일<input type="date" value={form.validTo??""} onChange={e=>patch({validTo:e.target.value})}/></label><label>기관·출처<input value={form.authority} onChange={e=>patch({authority:e.target.value})} required/></label><label>근거문서<input value={form.reference??""} onChange={e=>patch({reference:e.target.value})} placeholder="지침·공급자 명세서·EPD 등"/></label><label className="full-span">기준 원문 URL<input type="url" value={form.referenceUrl??""} onChange={e=>patch({referenceUrl:e.target.value})} placeholder="https://"/></label><label className="full-span textarea-label">적용 범위·주의사항<textarea value={form.notes??""} onChange={e=>patch({notes:e.target.value})} placeholder="적용할 활동자료 단위, 조직경계, 연도, 추정 가정 등을 기록해 주세요."/></label><Toggle label="활동자료 입력 시 사용" checked={form.active} onChange={v=>patch({active:v})}/></div></div>
     <div className="modal-footer split">{onDelete?<button type="button" className="danger-button" onClick={onDelete}><Icon name="trash" size={15}/>삭제</button>:<span/>}<div><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button"><Icon name="check" size={16}/>계수 저장</button></div></div>
+  </form></Overlay>;
+}
+
+function BatchRecordEntry({records,periods,factors,organizations,defaultOwner,defaultDepartment,onClose,onSave,showToast}:{records:ActivityRecord[];periods:CollectionPeriod[];factors:EmissionFactor[];organizations:Record<string,string[]>;defaultOwner:string;defaultDepartment:string;onClose:()=>void;onSave:(rows:ActivityRecord[])=>void;showToast:(message:string)=>void}){
+  const editablePeriods=periods.filter(period=>period.status==="수집중");
+  const initialPeriod=editablePeriods[0];
+  const organizationSet=new Set(Object.keys(organizations));
+  const initialTasks=(initialPeriod?buildGHGCollectionTasks(initialPeriod):[]).filter(task=>!organizationSet.size||organizationSet.has(task.company));
+  const initialTask=initialTasks[0];
+  const initialScope=initialTask?.targetId??"Scope 1";
+  const initialFactor=factors.find(factor=>factor.active&&factor.scope===initialScope);
+  const [context,setContext]=useState({collectionId:initialPeriod?.id??"",company:initialTask?.company??Object.keys(organizations)[0]??"",site:organizations[initialTask?.company??""]?.[0]??"",period:initialTask?.period??initialPeriod?.dataFrom??new Date().toISOString().slice(0,7),scope:initialScope,owner:defaultOwner,department:defaultDepartment});
+  const nextKey=useRef(2);
+  const [rows,setRows]=useState<ActivityInputRow[]>([{key:"input-row-1",factorId:initialFactor?.id??"",usage:0,evidence:"",description:""}]);
+  const [error,setError]=useState("");
+  const importRef=useRef<HTMLInputElement>(null);
+  const selectedPeriod=editablePeriods.find(period=>period.id===context.collectionId);
+  const selectedTasks=(selectedPeriod?buildGHGCollectionTasks(selectedPeriod):[]).filter(task=>!organizationSet.size||organizationSet.has(task.company));
+  const companies=[...new Set(selectedTasks.map(task=>task.company))];
+  const scopes=[...new Set(selectedTasks.filter(task=>task.company===context.company).map(task=>task.targetId))];
+  const months=[...new Set(selectedTasks.filter(task=>task.company===context.company&&task.targetId===context.scope).map(task=>task.period))].sort();
+  const years=[...new Set(months.map(month=>month.slice(0,4)))];
+  const selectedYear=months.includes(context.period)?context.period.slice(0,4):(years[0]??"");
+  const visibleMonths=months.filter(month=>month.startsWith(selectedYear));
+  const availableFactors=factors.filter(factor=>factor.active&&factor.scope===context.scope);
+  const categories=[...new Set(availableFactors.map(factor=>factor.category))];
+  const factorFor=(row:ActivityInputRow)=>availableFactors.find(factor=>factor.id===row.factorId)??null;
+  const resetRowFactors=(scope:Scope)=>{const first=factors.find(factor=>factor.active&&factor.scope===scope);setRows(current=>current.map((row,index)=>({...row,factorId:index===0?(first?.id??""):"",usage:0})));};
+  const changeCollection=(collectionId:string)=>{const period=editablePeriods.find(item=>item.id===collectionId);const tasks=(period?buildGHGCollectionTasks(period):[]).filter(task=>!organizationSet.size||organizationSet.has(task.company));const task=tasks[0];if(!period||!task)return;setContext(current=>({...current,collectionId,company:task.company,site:organizations[task.company]?.[0]??"",period:task.period,scope:task.targetId}));resetRowFactors(task.targetId);setError("");};
+  const changeCompany=(company:string)=>{const task=selectedTasks.find(item=>item.company===company&&item.targetId===context.scope)??selectedTasks.find(item=>item.company===company);if(!task)return;setContext(current=>({...current,company,site:organizations[company]?.[0]??"",period:task.period,scope:task.targetId}));resetRowFactors(task.targetId);setError("");};
+  const changeScope=(scope:Scope)=>{const task=selectedTasks.find(item=>item.company===context.company&&item.targetId===scope);if(!task)return;setContext(current=>({...current,scope,period:task.period}));resetRowFactors(scope);setError("");};
+  const changeYear=(year:string)=>{const month=months.find(item=>item.startsWith(year));if(month)setContext(current=>({...current,period:month}));};
+  const addRow=()=>{const used=new Set(rows.map(row=>row.factorId));const nextFactor=availableFactors.find(factor=>!used.has(factor.id))??availableFactors[0];setRows(current=>[...current,{key:`input-row-${nextKey.current++}`,factorId:nextFactor?.id??"",usage:0,evidence:"",description:""}]);setError("");};
+  const patchRow=(key:string,patch:Partial<ActivityInputRow>)=>setRows(current=>current.map(row=>row.key===key?{...row,...patch}:row));
+  const chooseCategory=(row:ActivityInputRow,category:string)=>{const factor=availableFactors.find(item=>item.category===category);patchRow(row.key,{factorId:factor?.id??""});};
+  const duplicateRow=(row:ActivityInputRow)=>setRows(current=>[...current,{...row,key:`input-row-${nextKey.current++}`,usage:0,evidence:""}]);
+  const removeRow=(key:string)=>setRows(current=>current.length===1?[{...current[0],factorId:availableFactors[0]?.id??"",usage:0,evidence:"",description:""}]:current.filter(row=>row.key!==key));
+  const rowIdentity=(row:ActivityInputRow)=>{const factor=factorFor(row);return factor?`${factor.category}|${factor.source}`:"";};
+  const identities=rows.map(row=>rowIdentity(row));
+  const duplicateIdentities=new Set(identities.filter((identity,index)=>identity&&identities.indexOf(identity)!==index));
+  const existingIdentities=new Set(records.filter(record=>record.active!==false&&record.collectionId===context.collectionId&&record.company===context.company&&record.site===context.site&&record.period===context.period&&record.scope===context.scope).map(record=>`${record.category}|${record.source}`));
+  const totalEmissions=rows.reduce((sum,row)=>{const factor=factorFor(row);return sum+(factor?row.usage*factor.value/1000:0);},0);
+  const exportRows=()=>{downloadCsv(`SEMS_${context.scope.replace(" ","")}_${context.period}_입력표.csv`,["활동자료 구분","배출원","사용량","단위","배출계수","예상 배출량(tCO2e)","증빙","설명"],rows.map(row=>{const factor=factorFor(row);return [factor?.category??"",factor?.source??"",row.usage,factor?.activityUnit??"",factor?.value??"",factor?Math.round(row.usage*factor.value/1000*100)/100:"",row.evidence,row.description]}));showToast("현재 입력표를 CSV로 내려받았습니다.");};
+  const importRows=async(event:ChangeEvent<HTMLInputElement>)=>{const file=event.target.files?.[0];if(!file)return;try{const XLSX=await import("xlsx");const book=XLSX.read(await file.arrayBuffer(),{type:"array"});const sheet=book.Sheets[book.SheetNames[0]];const values=XLSX.utils.sheet_to_json<Record<string,unknown>>(sheet,{defval:""});const imported:ActivityInputRow[]=[];const issues:string[]=[];values.forEach((value,index)=>{const category=String(value["활동자료 구분"]??value["구분"]??"").trim();const source=String(value["배출원"]??"").trim();const usage=Number(value["사용량"]);const factor=availableFactors.find(item=>item.category===category&&item.source===source);if(!factor||!Number.isFinite(usage)||usage<=0){issues.push(`${index+2}행`);return;}imported.push({key:`input-row-${nextKey.current++}`,factorId:factor.id,usage,evidence:String(value["증빙"]??value["증빙 파일명"]??"").trim(),description:String(value["설명"]??value["입력 설명"]??"").trim()});});if(!imported.length){setError("불러올 수 있는 행이 없습니다. 현재 Scope의 구분·배출원과 사용량을 확인해 주세요.");return;}const hasOnlyBlank=rows.length===1&&!rows[0].usage&&!rows[0].evidence&&!rows[0].description;setRows(current=>hasOnlyBlank?imported:[...current,...imported]);setError(issues.length?`${issues.join(", ")}은 구분·배출원 또는 사용량이 맞지 않아 제외했습니다.`:"");showToast(`${imported.length}개 행을 입력표에 불러왔습니다.`);}catch{setError("CSV 파일을 읽을 수 없습니다. 현재 입력표에서 내보낸 양식을 사용해 주세요.");}finally{event.target.value="";}};
+  const submit=(event:FormEvent)=>{event.preventDefault();if(!selectedPeriod||!selectedTasks.some(task=>task.company===context.company&&task.targetId===context.scope&&task.period===context.period)){setError("현재 수집 요청에 포함된 회사·Scope·귀속월을 선택해 주세요.");return;}if(!context.site){setError("사업장을 선택해 주세요.");return;}if(!rows.length||rows.some(row=>!factorFor(row)||!Number.isFinite(row.usage)||row.usage<=0)){setError("모든 행의 활동자료와 0보다 큰 사용량을 입력해 주세요.");return;}if(duplicateIdentities.size){setError("입력표 안에 같은 배출원이 두 번 들어 있습니다. 중복 행을 정리해 주세요.");return;}if(rows.some(row=>existingIdentities.has(rowIdentity(row)))){setError("이미 저장된 같은 사업장·귀속월·배출원이 있습니다. 기존 행을 수정하거나 다른 배출원을 선택해 주세요.");return;}if(!context.owner.trim()||!context.department.trim()){setError("공통 담당자와 담당 부서를 입력해 주세요.");return;}onSave(rows.map(row=>{const factor=factorFor(row)!;return {id:0,collectionId:context.collectionId,company:context.company,site:context.site,period:context.period,scope:context.scope,category:factor.category,source:factor.source,usage:row.usage,unit:factor.activityUnit,factor:factor.value,emissions:Math.round(row.usage*factor.value/1000*100)/100,owner:context.owner.trim(),department:context.department.trim(),status:"작성중",evidence:row.evidence,description:row.description,active:true,updatedAt:"방금 전"};}));};
+  if(!editablePeriods.length)return <Overlay title="활동자료 입력 불가" eyebrow="ACTIVITY DATA" description="현재 수집중인 기간이 없습니다." onClose={onClose}><div className="empty-state"><Icon name="calendar"/><strong>수집기간을 먼저 개설해 주세요.</strong><p>관리자가 수집 요청을 시작하면 여러 활동자료를 한 번에 입력할 수 있습니다.</p></div><div className="modal-footer"><button className="primary-button" onClick={onClose}>확인</button></div></Overlay>;
+  return <Overlay title="활동자료 일괄 입력" eyebrow="SEMS INPUT SHEET" description="회사·사업장·연도·월을 한 번 선택하고 여러 배출원을 행으로 추가해 함께 저장합니다." onClose={onClose} size="wide"><form onSubmit={submit} className="batch-entry-form">
+    <div className="batch-context-bar"><label>수집기간<select value={context.collectionId} onChange={event=>changeCollection(event.target.value)}>{editablePeriods.map(period=><option value={period.id} key={period.id}>{period.name}</option>)}</select></label><label>회사<select value={context.company} onChange={event=>changeCompany(event.target.value)}>{companies.map(company=><option key={company}>{company}</option>)}</select></label><label>사업장<select value={context.site} onChange={event=>setContext(current=>({...current,site:event.target.value}))}>{(organizations[context.company]??[]).map(site=><option key={site}>{site}</option>)}</select></label><label>연도<select value={selectedYear} onChange={event=>changeYear(event.target.value)}>{years.map(year=><option key={year}>{year}년</option>)}</select></label><label>월<select value={context.period} onChange={event=>setContext(current=>({...current,period:event.target.value}))}>{visibleMonths.map(month=><option value={month} key={month}>{Number(month.slice(5))}월</option>)}</select></label><label>Scope<select value={context.scope} onChange={event=>changeScope(event.target.value as Scope)}>{scopes.map(scope=><option key={scope}>{scope}</option>)}</select></label></div>
+    <div className="batch-sheet-toolbar"><div><span className={`scope-tag s${context.scope.slice(-1)}`}>{context.scope}</span><div><strong>{context.scope==="Scope 1"?"직접 배출 사용량 입력":"활동자료 사용량 입력"}</strong><small>{rows.length}개 행 · 배출계수와 예상 배출량 자동 계산</small></div></div><div className="batch-toolbar-actions"><button type="button" className="batch-add-button" onClick={addRow}><Icon name="plus" size={15}/>행 추가</button><button type="button" className="batch-export-button" onClick={exportRows}><Icon name="download" size={15}/>CSV 내보내기</button><button type="button" className="batch-import-button" onClick={()=>importRef.current?.click()}><Icon name="upload" size={15}/>CSV 불러오기</button><input ref={importRef} type="file" accept=".csv,.xlsx,.xls" onChange={importRows}/></div></div>
+    <div className="batch-table-scroll"><table className="batch-entry-table"><thead><tr><th>번호</th><th>활동자료 구분</th><th>배출원</th><th>사용량</th><th>단위</th><th>배출계수</th><th>예상 배출량</th><th>증빙</th><th>입력 설명</th><th>작업</th></tr></thead><tbody>{rows.map((row,index)=>{const factor=factorFor(row);const sources=availableFactors.filter(item=>item.category===factor?.category);const identity=rowIdentity(row);const duplicated=duplicateIdentities.has(identity)||existingIdentities.has(identity);return <tr key={row.key} className={duplicated?"batch-row-error":""}><td><span className="batch-row-number">{index+1}</span></td><td><select value={factor?.category??""} onChange={event=>chooseCategory(row,event.target.value)} aria-label={`${index+1}행 활동자료 구분`}><option value="">구분 선택</option>{categories.map(category=><option key={category}>{category}</option>)}</select></td><td><select value={row.factorId} onChange={event=>patchRow(row.key,{factorId:event.target.value})} aria-label={`${index+1}행 배출원`}><option value="">배출원 선택</option>{sources.map(source=><option value={source.id} key={source.id}>{source.source}</option>)}</select>{duplicated&&<small>중복 배출원</small>}</td><td><input type="number" min="0" step="any" value={row.usage||""} onChange={event=>patchRow(row.key,{usage:Number(event.target.value)})} placeholder="0" aria-label={`${index+1}행 사용량`}/></td><td className="batch-readonly">{factor?.activityUnit??"-"}</td><td className="batch-readonly mono">{factor?formatNumber(factor.value,factor.value<10?5:1):"-"}</td><td className="batch-emissions"><strong>{factor?formatNumber(row.usage*factor.value/1000,2):"0.00"}</strong><span>tCO₂e</span></td><td><label className="batch-file-button"><input type="file" accept=".pdf,.xlsx,.xls,.jpg,.jpeg,.png" onChange={event=>{const file=event.target.files?.[0];if(file)patchRow(row.key,{evidence:file.name})}}/><Icon name={row.evidence?"file":"upload"} size={14}/><span title={row.evidence}>{row.evidence||"파일"}</span></label></td><td><input value={row.description} onChange={event=>patchRow(row.key,{description:event.target.value})} placeholder="산정 근거·변동 사유" aria-label={`${index+1}행 입력 설명`}/></td><td><div className="batch-row-actions"><button type="button" onClick={()=>duplicateRow(row)} aria-label={`${index+1}행 복제`} title="행 복제"><Icon name="copy" size={14}/></button><button type="button" className="danger" onClick={()=>removeRow(row.key)} aria-label={`${index+1}행 삭제`} title="행 삭제"><Icon name="trash" size={14}/></button></div></td></tr>})}</tbody></table></div>
+    <button type="button" className="batch-add-row-line" onClick={addRow}><Icon name="plus" size={15}/>새 배출원 행 추가</button>
+    <div className="batch-common-info"><div><label>담당자<input value={context.owner} onChange={event=>setContext(current=>({...current,owner:event.target.value}))}/></label><label>담당 부서<input value={context.department} onChange={event=>setContext(current=>({...current,department:event.target.value}))}/></label></div><div><span>입력 행</span><strong>{rows.length}<small>건</small></strong></div><div><span>예상 배출량 합계</span><strong>{formatNumber(totalEmissions,2)}<small>tCO₂e</small></strong></div></div>
+    {error&&<p className="form-error batch-error"><Icon name="alert" size={15}/>{error}</p>}
+    <div className="modal-footer"><button type="button" className="secondary-button" onClick={onClose}>취소</button><button type="submit" className="primary-button" disabled={!availableFactors.length}><Icon name="check" size={17}/>{rows.length}개 행 한꺼번에 저장</button></div>
   </form></Overlay>;
 }
 
