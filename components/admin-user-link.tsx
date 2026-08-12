@@ -1,30 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+
+import { useSemsAuth } from "@/components/auth-context";
 
 export default function AdminUserLink() {
-  const supabase = getSupabaseBrowserClient();
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!supabase) return;
-    let mounted = true;
-
-    const check = async () => {
-      const { data } = await supabase.auth.getSession();
-      const userId = data.session?.user.id;
-      if (!userId) return;
-      const { data: profile } = await supabase.from("profiles").select("role,active").eq("id", userId).single();
-      if (mounted) setVisible(Boolean(profile?.active && profile.role === "admin"));
-    };
-
-    void check();
-    return () => { mounted = false; };
-  }, [supabase]);
-
-  if (!visible) return null;
+  const { isAdmin } = useSemsAuth();
+  if (!isAdmin) return null;
 
   return (
     <Link

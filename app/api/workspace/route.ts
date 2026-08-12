@@ -1,12 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isAdminRole, normalizeSemsRole, type SemsRole, type StoredSemsRole } from "@/lib/access-control";
 import { DEFAULT_EMISSION_FACTORS, withDefaultEmissionFactors } from "@/lib/emission-factor-library";
+import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-type Role = "admin" | "manager" | "editor" | "viewer";
 type WorkspacePayload = {
   periods: unknown[];
   records: unknown[];
@@ -42,13 +42,17 @@ type Profile = {
   email: string | null;
   display_name: string;
   department: string;
-  role: Role;
+  role: SemsRole;
   active: boolean;
   organization_id: string | null;
   site_id: string | null;
   organization?: { name: string } | null;
   site?: { name: string } | null;
 };
+
+type StoredProfile = Omit<Profile, "role"> & { role: StoredSemsRole };
+type WorkspaceRow = { scope_key: string; organization_id: string | null; payload: unknown };
+type DataRow = Record<string, unknown>;
 
 const EMPTY_WORKSPACE: WorkspacePayload = {
   periods: [],
@@ -90,6 +94,10 @@ const EMPTY_WORKSPACE: WorkspacePayload = {
   organizations: {},
 };
 
+function asRow(value: unknown): DataRow {
+  return value && typeof value === "object" ? value as DataRow : {};
+}
+
 function normalizeWorkspace(value: unknown): WorkspacePayload {
   const payload = value && typeof value === "object" ? value as Partial<WorkspacePayload> : {};
   return {
@@ -124,14 +132,8 @@ function normalizeWorkspace(value: unknown): WorkspacePayload {
 }
 
 function rowKey(value: unknown, collection: keyof WorkspacePayload) {
-  const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
-  return [
-    collection,
-    row.organization ?? row.company ?? "",
-    row.id ?? "",
-    row.code ?? "",
-    row.at ?? "",
-  ].join("|");
+  const row = asRow(value);
+  return [collection, row.organization ?? row.company ?? "", row.id ?? "", row.code ?? "", row.at ?? ""].join("|");
 }
 
 function mergeRows(collection: keyof WorkspacePayload, groups: unknown[][]) {
@@ -162,6 +164,44 @@ function mergeWorkspace(globalValue: unknown, organizationValues: unknown[]) {
   } satisfies WorkspacePayload;
 }
 
+function assignedToOrganization(value: unknown, organizationName: string, key: "companies" | "organizationScope") {
+  const assigned = asRow(value)[key];
+  return Array.isArray(assigned) && assigned.includes(organizationName);
+}
+
+function filterAssignedRows(rows: unknown[], organizationName: string, key: "companies" | "organizationScope") {
+  return rows
+    .filter((value) => assignedToOrganization(value, organizationName, key))
+    .map((value) => ({ ...asRow(value), [key]: [organizationName] }));
+}
+
+function filterCompanyRows(rows: unknown[], organizationName: string, key: "company" | "organization") {
+  return rows.filter((value) => asRow(value)[key] === organizationName);
+}
+
+function scopeWorkspaceForOrganization(globalValue: unknown, organizationValue: unknown, organizationName: string, sites: string[]) {
+  const global = normalizeWorkspace(globalValue);
+  const organization = normalizeWorkspace(organizationValue);
+  return {
+    ...global,
+    periods: filterAssignedRows(global.periods, organizationName, "companies"),
+    records: filterCompanyRows(organization.records, organizationName, "company"),
+    assetUnits: filterCompanyRows(global.assetUnits, organizationName, "company"),
+    scope3Requests: filterAssignedRows(global.scope3Requests, organizationName, "organizationScope"),
+    supplyChainAssessments: [],
+    evidence: organization.evidence
+      .filter((value) => !asRow(value).organization || asRow(value).organization === organizationName)
+      .map((value) => ({ ...asRow(value), organization: organizationName })),
+    metricRequests: filterAssignedRows(global.metricRequests, organizationName, "companies"),
+    metricSubmissions: filterCompanyRows(organization.metricSubmissions, organizationName, "company"),
+    reports: filterCompanyRows(global.reports, organizationName, "organization"),
+    targets: filterCompanyRows(organization.targets, organizationName, "company"),
+    plans: filterCompanyRows(organization.plans, organizationName, "company"),
+    audit: organization.audit,
+    organizations: { [organizationName]: sites },
+  } satisfies WorkspacePayload;
+}
+
 async function authenticate(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -172,9 +212,7 @@ async function authenticate(request: NextRequest) {
     return { error: NextResponse.json({ error: "인증 정보가 없습니다." }, { status: 401 }) };
   }
 
-  const authClient = createClient(url, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const authClient = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: authData, error: authError } = await authClient.auth.getUser(token);
   if (authError || !authData.user) {
     return { error: NextResponse.json({ error: "로그인 세션이 유효하지 않습니다." }, { status: 401 }) };
@@ -191,7 +229,9 @@ async function authenticate(request: NextRequest) {
     return { error: NextResponse.json({ error: "활성화된 SEMS 사용 권한이 없습니다." }, { status: 403 }) };
   }
 
-  return { admin, profile: data as unknown as Profile };
+  const stored = data as unknown as StoredProfile;
+  const profile: Profile = { ...stored, role: normalizeSemsRole(stored.role) };
+  return { admin, profile };
 }
 
 async function getOrganizationDirectory() {
@@ -211,7 +251,6 @@ async function getOrganizationDirectory() {
       .filter((site) => site.organization_id === organization.id)
       .map((site) => site.name);
   }
-
   return { organizations: organizations ?? [], directory };
 }
 
@@ -221,31 +260,81 @@ export async function GET(request: NextRequest) {
     if ("error" in auth) return auth.error;
 
     const { organizations, directory } = await getOrganizationDirectory();
-    const isManager = auth.profile.role === "admin" || auth.profile.role === "manager";
-    const { data: rows, error } = await auth.admin
-      .from("workspace_states")
-      .select("scope_key,organization_id,payload");
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    const isAdmin = isAdminRole(auth.profile.role);
+    if (!isAdmin && (!auth.profile.organization_id || !auth.profile.organization?.name)) {
+      return NextResponse.json({ error: "자료 입력자와 조회자는 소속 법인이 지정되어야 합니다." }, { status: 403 });
     }
 
-    const global = rows?.find((row) => row.scope_key === "global")?.payload;
-    const organizationRows = isManager
-      ? (rows ?? []).filter((row) => row.scope_key.startsWith("organization:")).map((row) => row.payload)
-      : (rows ?? []).filter((row) => row.organization_id === auth.profile.organization_id).map((row) => row.payload);
-    const payload = mergeWorkspace(global, organizationRows);
-    payload.organizations = directory;
+    let query = auth.admin.from("workspace_states").select("scope_key,organization_id,payload");
+    if (!isAdmin) {
+      query = query.in("scope_key", ["global", `organization:${auth.profile.organization_id}`]);
+    }
+    const { data, error } = await query;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({
-      profile: auth.profile,
-      payload,
-      organizationCount: organizations.length,
-    });
+    const rows = (data ?? []) as WorkspaceRow[];
+    const global = rows.find((row) => row.scope_key === "global")?.payload;
+    const payload = isAdmin
+      ? mergeWorkspace(global, rows.filter((row) => row.scope_key.startsWith("organization:")).map((row) => row.payload))
+      : scopeWorkspaceForOrganization(
+          global,
+          rows.find((row) => row.organization_id === auth.profile.organization_id)?.payload,
+          auth.profile.organization!.name,
+          directory[auth.profile.organization!.name] ?? [],
+        );
+    if (isAdmin) payload.organizations = directory;
+
+    return NextResponse.json({ profile: auth.profile, payload, organizationCount: isAdmin ? organizations.length : 1 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "운영 데이터를 불러오지 못했습니다.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+function mergeEditorRows(
+  existingRows: unknown[],
+  incomingRows: unknown[],
+  canEdit: (row: DataRow) => boolean,
+  isProtected: (row: DataRow) => boolean,
+  sanitize: (row: DataRow, existing?: DataRow) => DataRow,
+) {
+  const incoming = new Map(incomingRows.map((value) => [String(asRow(value).id ?? rowKey(value, "records")), asRow(value)]));
+  const result: DataRow[] = [];
+  for (const value of existingRows) {
+    const current = asRow(value);
+    const key = String(current.id ?? rowKey(value, "records"));
+    const next = incoming.get(key);
+    incoming.delete(key);
+    if (isProtected(current) || !canEdit(current)) {
+      result.push(current);
+    } else if (next) {
+      result.push(sanitize(next, current));
+    }
+  }
+  for (const next of incoming.values()) {
+    if (canEdit(next)) result.push(sanitize(next));
+  }
+  return result;
+}
+
+function sanitizeAudit(existing: unknown[], incoming: unknown[], profile: Profile, organizationName: string) {
+  const known = new Set(existing.map((value) => rowKey(value, "audit")));
+  const additions = incoming
+    .filter((value) => !known.has(rowKey(value, "audit")))
+    .slice(0, 100)
+    .map((value) => {
+      const row = asRow(value);
+      return {
+        id: row.id ?? Date.now(),
+        at: String(row.at ?? new Date().toISOString()),
+        actor: profile.display_name || profile.email || "자료 입력자",
+        action: String(row.action ?? "자료 변경").slice(0, 100),
+        target: String(row.target ?? organizationName).slice(0, 200),
+        detail: String(row.detail ?? "").slice(0, 1000),
+        organization: organizationName,
+      };
+    });
+  return [...additions, ...existing].slice(0, 500);
 }
 
 export async function PATCH(request: NextRequest) {
@@ -259,50 +348,111 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json() as { payload?: unknown };
     const payload = normalizeWorkspace(body.payload);
     const now = new Date().toISOString();
-    const isManager = auth.profile.role === "admin" || auth.profile.role === "manager";
+    const isAdmin = isAdminRole(auth.profile.role);
 
-    if (!isManager) {
+    if (!isAdmin) {
       if (!auth.profile.organization_id || !auth.profile.organization?.name) {
         return NextResponse.json({ error: "소속 법인이 지정되지 않았습니다." }, { status: 400 });
       }
 
+      const organizationId = auth.profile.organization_id;
       const organizationName = auth.profile.organization.name;
-      const organizationPayload = {
-        ...EMPTY_WORKSPACE,
-        records: payload.records.filter((value) => (value as { company?: string }).company === organizationName),
-        metricSubmissions: payload.metricSubmissions.filter((value) => (value as { company?: string }).company === organizationName),
-        evidence: payload.evidence.filter((value) => {
-          const organization = (value as { organization?: string; company?: string }).organization
-            ?? (value as { company?: string }).company;
-          return !organization || organization === organizationName;
+      const scopeKey = `organization:${organizationId}`;
+      const { data: stateRows, error: stateError } = await auth.admin
+        .from("workspace_states")
+        .select("scope_key,payload")
+        .in("scope_key", ["global", scopeKey]);
+      if (stateError) return NextResponse.json({ error: stateError.message }, { status: 500 });
+
+      const global = normalizeWorkspace(stateRows?.find((row) => row.scope_key === "global")?.payload);
+      const existing = normalizeWorkspace(stateRows?.find((row) => row.scope_key === scopeKey)?.payload);
+      const periods = new Map(global.periods.map((value) => [String(asRow(value).id ?? ""), asRow(value)]));
+      const requests = new Map(global.metricRequests.map((value) => [String(asRow(value).id ?? ""), asRow(value)]));
+      const canEditRecord = (row: DataRow) => {
+        const period = periods.get(String(row.collectionId ?? ""));
+        return row.company === organizationName
+          && period?.status === "수집중"
+          && Array.isArray(period.companies)
+          && period.companies.includes(organizationName);
+      };
+      const canEditSubmission = (row: DataRow) => {
+        const requestRow = requests.get(String(row.requestId ?? ""));
+        return row.company === organizationName
+          && requestRow?.status === "수집중"
+          && Array.isArray(requestRow.companies)
+          && requestRow.companies.includes(organizationName)
+          && Array.isArray(requestRow.indicatorIds)
+          && requestRow.indicatorIds.map(String).includes(String(row.indicatorId ?? ""));
+      };
+
+      const records = mergeEditorRows(
+        existing.records,
+        payload.records.filter((value) => asRow(value).company === organizationName),
+        canEditRecord,
+        (row) => row.status === "검토대기" || row.status === "확정" || row.locked === true,
+        (row, current) => ({
+          ...row,
+          company: organizationName,
+          status: row.status === "검토대기" ? "검토대기" : current?.status === "반려" ? "반려" : "작성중",
+          locked: false,
         }),
-        targets: payload.targets.filter((value) => (value as { company?: string }).company === organizationName),
-        plans: payload.plans.filter((value) => (value as { company?: string }).company === organizationName),
-        audit: payload.audit,
+      );
+      const metricSubmissions = mergeEditorRows(
+        existing.metricSubmissions,
+        payload.metricSubmissions.filter((value) => asRow(value).company === organizationName),
+        canEditSubmission,
+        (row) => row.status === "검토대기" || row.status === "확정",
+        (row, current) => ({
+          ...row,
+          company: organizationName,
+          status: row.status === "검토대기" ? "검토대기" : current?.status === "반려" ? "반려" : "작성중",
+        }),
+      );
+      const evidence = mergeEditorRows(
+        existing.evidence,
+        payload.evidence.filter((value) => asRow(value).organization === organizationName),
+        (row) => row.organization === organizationName,
+        (row) => row.status === "승인" || row.status === "만료",
+        (row, current) => {
+          const incomingPath = String(row.storagePath ?? "");
+          const allowedPrefix = `${organizationId}/${auth.profile.id}/`;
+          const storagePath = incomingPath === String(current?.storagePath ?? "") || incomingPath.startsWith(allowedPrefix)
+            ? incomingPath
+            : String(current?.storagePath ?? "");
+          return { ...row, organization: organizationName, storagePath, status: "검토중" };
+        },
+      );
+      const organizationPayload: WorkspacePayload = {
+        ...EMPTY_WORKSPACE,
+        records,
+        metricSubmissions,
+        evidence,
+        targets: existing.targets,
+        plans: existing.plans,
+        audit: sanitizeAudit(existing.audit, payload.audit, auth.profile, organizationName),
         organizations: {},
       };
 
       const { error } = await auth.admin.from("workspace_states").upsert({
-        scope_key: `organization:${auth.profile.organization_id}`,
-        organization_id: auth.profile.organization_id,
+        scope_key: scopeKey,
+        organization_id: organizationId,
         payload: organizationPayload,
         updated_by: auth.profile.id,
         updated_at: now,
       }, { onConflict: "scope_key" });
-
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ savedAt: now });
     }
 
     const { organizations } = await getOrganizationDirectory();
-    const organizationByName = new Map(organizations.map((organization) => [organization.name, organization.id]));
     const globalPayload: WorkspacePayload = {
       ...payload,
       records: [],
       metricSubmissions: [],
-      evidence: [],
-      targets: payload.targets.filter((value) => (value as { company?: string }).company === "그룹 전체"),
+      evidence: payload.evidence.filter((value) => !asRow(value).organization),
+      targets: payload.targets.filter((value) => asRow(value).company === "그룹 전체"),
       plans: [],
+      audit: payload.audit.filter((value) => !asRow(value).organization),
       organizations: {},
     };
     const upserts: Record<string, unknown>[] = [{
@@ -317,20 +467,16 @@ export async function PATCH(request: NextRequest) {
       const name = organization.name;
       const organizationPayload: WorkspacePayload = {
         ...EMPTY_WORKSPACE,
-        records: payload.records.filter((value) => (value as { company?: string }).company === name),
-        metricSubmissions: payload.metricSubmissions.filter((value) => (value as { company?: string }).company === name),
-        evidence: payload.evidence.filter((value) => {
-          const assigned = (value as { organization?: string; company?: string }).organization
-            ?? (value as { company?: string }).company;
-          return assigned === name;
-        }),
-        targets: payload.targets.filter((value) => (value as { company?: string }).company === name),
-        plans: payload.plans.filter((value) => (value as { company?: string }).company === name),
-        audit: [],
+        records: filterCompanyRows(payload.records, name, "company"),
+        metricSubmissions: filterCompanyRows(payload.metricSubmissions, name, "company"),
+        evidence: filterCompanyRows(payload.evidence, name, "organization"),
+        targets: filterCompanyRows(payload.targets, name, "company"),
+        plans: filterCompanyRows(payload.plans, name, "company"),
+        audit: payload.audit.filter((value) => asRow(value).organization === name),
         organizations: {},
       };
       upserts.push({
-        scope_key: `organization:${organizationByName.get(name)}`,
+        scope_key: `organization:${organization.id}`,
         organization_id: organization.id,
         payload: organizationPayload,
         updated_by: auth.profile.id,
@@ -338,11 +484,8 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    const { error } = await auth.admin
-      .from("workspace_states")
-      .upsert(upserts, { onConflict: "scope_key" });
+    const { error } = await auth.admin.from("workspace_states").upsert(upserts, { onConflict: "scope_key" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
     return NextResponse.json({ savedAt: now });
   } catch (error) {
     const message = error instanceof Error ? error.message : "운영 데이터를 저장하지 못했습니다.";

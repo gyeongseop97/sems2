@@ -1,17 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+
+import { isAdminRole, normalizeSemsRole, SEMS_ROLES, type SemsRole } from "@/lib/access-control";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
-
-type Role = "admin" | "manager" | "editor" | "viewer";
 
 type CreateUserBody = {
   email?: string;
   password?: string;
   displayName?: string;
   department?: string;
-  role?: Role;
+  role?: SemsRole;
   organizationId?: string | null;
   siteId?: string | null;
   active?: boolean;
@@ -21,7 +21,7 @@ type UpdateUserBody = {
   id?: string;
   displayName?: string;
   department?: string;
-  role?: Role;
+  role?: SemsRole;
   organizationId?: string | null;
   siteId?: string | null;
   active?: boolean;
@@ -53,11 +53,32 @@ async function requireAdmin(request: NextRequest) {
     .eq("id", authData.user.id)
     .single();
 
-  if (profileError || !profile?.active || profile.role !== "admin") {
+  if (profileError || !profile?.active || !isAdminRole(profile.role)) {
     return { error: NextResponse.json({ error: "관리자 권한이 필요합니다." }, { status: 403 }) };
   }
 
   return { admin, userId: authData.user.id };
+}
+
+async function validateAssignment(
+  admin: ReturnType<typeof getSupabaseAdminClient>,
+  role: SemsRole,
+  organizationId: string | null | undefined,
+  siteId: string | null | undefined,
+) {
+  if ((role === "editor" || role === "viewer") && !organizationId) {
+    return "자료 입력자와 조회자는 소속 법인을 지정해야 합니다.";
+  }
+  if (!organizationId && siteId) return "사업장을 지정하려면 소속 법인을 먼저 선택해야 합니다.";
+  if (organizationId) {
+    const { data: organization } = await admin.from("organizations").select("id,active").eq("id", organizationId).single();
+    if (!organization?.active) return "사용 중인 법인을 선택해 주세요.";
+  }
+  if (siteId) {
+    const { data: site } = await admin.from("sites").select("id,organization_id,active").eq("id", siteId).single();
+    if (!site?.active || site.organization_id !== organizationId) return "선택한 법인에 속한 사용 중 사업장을 지정해 주세요.";
+  }
+  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -78,7 +99,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: profilesError?.message ?? organizationsError?.message ?? sitesError?.message }, { status: 500 });
     }
 
-    return NextResponse.json({ profiles, organizations, sites });
+    return NextResponse.json({
+      profiles: (profiles ?? []).map((profile) => ({ ...profile, role: normalizeSemsRole(profile.role) })),
+      organizations,
+      sites,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "사용자 목록을 불러오지 못했습니다.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -105,9 +130,9 @@ export async function POST(request: NextRequest) {
     if (!displayName) {
       return NextResponse.json({ error: "사용자 이름을 입력해 주세요." }, { status: 400 });
     }
-    if ((role === "editor" || role === "viewer") && !body.organizationId) {
-      return NextResponse.json({ error: "자료 입력자와 조회자는 소속 법인을 지정해야 합니다." }, { status: 400 });
-    }
+    if (!SEMS_ROLES.includes(role)) return NextResponse.json({ error: "올바른 사용자 권한을 선택해 주세요." }, { status: 400 });
+    const assignmentError = await validateAssignment(auth.admin, role, body.organizationId, body.siteId);
+    if (assignmentError) return NextResponse.json({ error: assignmentError }, { status: 400 });
 
     const { data: created, error: createError } = await auth.admin.auth.admin.createUser({
       email,
@@ -161,14 +186,40 @@ export async function PATCH(request: NextRequest) {
     if (!body.id) {
       return NextResponse.json({ error: "사용자 ID가 없습니다." }, { status: 400 });
     }
-    if ((body.role === "editor" || body.role === "viewer") && !body.organizationId) {
-      return NextResponse.json({ error: "자료 입력자와 조회자는 소속 법인을 지정해야 합니다." }, { status: 400 });
+
+    const { data: current, error: currentError } = await auth.admin
+      .from("profiles")
+      .select("id,role,active,organization_id,site_id")
+      .eq("id", body.id)
+      .single();
+    if (currentError || !current) return NextResponse.json({ error: "변경할 사용자를 찾지 못했습니다." }, { status: 404 });
+
+    const nextRole = body.role ?? normalizeSemsRole(current.role);
+    const nextActive = body.active ?? current.active;
+    const nextOrganizationId = body.organizationId !== undefined ? body.organizationId : current.organization_id;
+    const nextSiteId = body.siteId !== undefined ? body.siteId : current.site_id;
+    if (!SEMS_ROLES.includes(nextRole)) return NextResponse.json({ error: "올바른 사용자 권한을 선택해 주세요." }, { status: 400 });
+    const assignmentError = await validateAssignment(auth.admin, nextRole, nextOrganizationId, nextSiteId);
+    if (assignmentError) return NextResponse.json({ error: assignmentError }, { status: 400 });
+    if (body.id === auth.userId && (nextRole !== "admin" || !nextActive)) {
+      return NextResponse.json({ error: "현재 로그인한 관리자 계정은 권한을 낮추거나 사용 중지할 수 없습니다." }, { status: 400 });
+    }
+
+    if (isAdminRole(current.role) && (nextRole !== "admin" || !nextActive)) {
+      const { count } = await auth.admin
+        .from("profiles")
+        .select("id", { count: "exact", head: true })
+        .in("role", ["admin", "manager"])
+        .eq("active", true);
+      if ((count ?? 0) <= 1) {
+        return NextResponse.json({ error: "최소 한 명의 사용 중인 관리자는 유지해야 합니다." }, { status: 400 });
+      }
     }
 
     const update = {
       ...(body.displayName !== undefined ? { display_name: body.displayName.trim() } : {}),
       ...(body.department !== undefined ? { department: body.department.trim() } : {}),
-      ...(body.role !== undefined ? { role: body.role } : {}),
+      ...(body.role !== undefined ? { role: nextRole } : {}),
       ...(body.organizationId !== undefined ? { organization_id: body.organizationId } : {}),
       ...(body.siteId !== undefined ? { site_id: body.siteId } : {}),
       ...(body.active !== undefined ? { active: body.active } : {}),

@@ -2068,3 +2068,11 @@ body.report-editor-open { overflow: hidden; }
   .metric-workspace-tabs > button { width: 100%; min-width: 0; }
   .metric-detail-fields { grid-template-columns: 1fr !important; }
 }
+
+.target-workspace.read-only .target-detail-head .row-actions,
+.target-workspace.read-only .coverage-card > button,
+.target-workspace.read-only .plan-actions button:last-child,
+.target-workspace.read-only .plan-table tbody td:last-child button,
+.target-workspace.read-only .target-empty button {
+  display: none;
+}

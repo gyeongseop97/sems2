@@ -2,7 +2,8 @@
 
 import { createContext, useContext } from "react";
 
-export type SemsRole = "admin" | "manager" | "editor" | "viewer";
+import type { SemsRole } from "@/lib/access-control";
+
 export type SyncStatus = "saved" | "saving" | "error";
 
 export type SemsProfile = {

@@ -85,13 +85,16 @@ test("renders development preview metadata", async () => {
 });
 
 test("preserves the latest operating workflow and readable type scale", async () => {
-  const [page, styles, factorLibrary, collectionCoverage, taskExpansion, griCatalog] = await Promise.all([
+  const [page, styles, factorLibrary, collectionCoverage, taskExpansion, griCatalog, accessControl, workspaceRoute, userManagement] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../lib/emission-factor-library.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/collection-coverage.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/collection-task-expansion.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/gri-workbook-indicators.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/access-control.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/workspace/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/admin/users/page.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /감축목표·이행계획/);
@@ -172,6 +175,15 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /공급망 수준 진단 요청/);
   assert.match(page, /scope3: "\/scope3-supply-chain"/);
   assert.match(page, /NAV_GROUPS/);
+  assert.match(page, /소속 법인 데이터 조회와 요청된 활동자료·정량데이터·증빙 입력 및 제출/);
+  assert.match(page, /const allowedNavItems = navItems\.filter/);
+  assert.match(page, /item\.id !== "quality" \|\| canReview/);
+  assert.match(accessControl, /\["admin", "editor", "viewer"\]/);
+  assert.doesNotMatch(userManagement, /기획실 관리자/);
+  assert.match(workspaceRoute, /scopeWorkspaceForOrganization/);
+  assert.match(workspaceRoute, /query = query\.in\("scope_key"/);
+  assert.match(workspaceRoute, /row\.status === "검토대기" \|\| row\.status === "확정"/);
+  assert.match(workspaceRoute, /조회자는 운영 데이터를 변경할 수 없습니다/);
   assert.match(page, /DEFAULT_CALCULATION_FORMULAS/);
   assert.match(page, /sems2-disclosure-standards/);
   assert.match(page, /const VIEW_PATHS: Record<View, string>/);

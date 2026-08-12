@@ -9,6 +9,7 @@ import {
   type SyncStatus,
   WORKSPACE_CHANGE_EVENT,
 } from "@/components/auth-context";
+import { canWriteRequestedData, isAdminRole } from "@/lib/access-control";
 import { DEFAULT_EMISSION_FACTORS, withDefaultEmissionFactors } from "@/lib/emission-factor-library";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
@@ -414,9 +415,9 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const isAdmin = profile.role === "admin";
-  const canManage = profile.role === "admin" || profile.role === "manager";
-  const canWrite = profile.role !== "viewer";
+  const isAdmin = isAdminRole(profile.role);
+  const canManage = isAdmin;
+  const canWrite = canWriteRequestedData(profile.role);
   const contextValue = {
     profile,
     syncStatus,

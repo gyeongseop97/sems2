@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
+import { useSemsAuth } from "@/components/auth-context";
+import { SEMS_ROLES, SEMS_ROLE_LABELS, type SemsRole } from "@/lib/access-control";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import styles from "./users.module.css";
-
-type Role = "admin" | "manager" | "editor" | "viewer";
 
 type Organization = {
   id: string;
@@ -25,7 +26,7 @@ type Profile = {
   email: string | null;
   display_name: string;
   department: string;
-  role: Role;
+  role: SemsRole;
   active: boolean;
   organization_id: string | null;
   site_id: string | null;
@@ -40,14 +41,14 @@ type UserResponse = {
   error?: string;
 };
 
-const roleLabels: Record<Role, string> = {
-  admin: "시스템 관리자",
-  manager: "기획실 관리자",
-  editor: "자료 입력자",
-  viewer: "조회자",
+const roleDescriptions: Record<SemsRole, string> = {
+  admin: "모든 법인의 조회·수정·검토·승인 및 사용자 관리",
+  editor: "소속 법인의 조회 및 요청받은 자료 입력·제출",
+  viewer: "소속 법인의 데이터 조회 전용",
 };
 
 export default function UserManagementPage() {
+  const { isAdmin } = useSemsAuth();
   const supabase = getSupabaseBrowserClient();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
@@ -62,7 +63,7 @@ export default function UserManagementPage() {
     password: "",
     displayName: "",
     department: "",
-    role: "editor" as Role,
+    role: "editor" as SemsRole,
     organizationId: "",
     siteId: "",
   });
@@ -102,14 +103,31 @@ export default function UserManagementPage() {
   }, [request]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     const timer = window.setTimeout(() => void loadUsers(), 0);
     return () => window.clearTimeout(timer);
-  }, [loadUsers]);
+  }, [isAdmin, loadUsers]);
 
   const formSites = useMemo(
     () => sites.filter((site) => site.active && site.organization_id === form.organizationId),
     [form.organizationId, sites],
   );
+
+  if (!isAdmin) {
+    return (
+      <main className={styles.page}>
+        <div className={styles.container}>
+          <section className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h1>접근 권한이 없습니다.</h1>
+              <p>사용자 계정과 권한은 관리자만 관리할 수 있습니다.</p>
+            </div>
+            <Link className={styles.back} href="/">SEMS로 돌아가기</Link>
+          </section>
+        </div>
+      </main>
+    );
+  }
 
   const createUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -177,7 +195,7 @@ export default function UserManagementPage() {
           <div>
             <div className={styles.eyebrow}>SYSTEM ADMINISTRATION</div>
             <h1>사용자 및 권한 관리</h1>
-            <p>SEMS 계정을 생성하고 법인·사업장별 접근 권한을 관리합니다.</p>
+            <p>관리자·자료 입력자·조회자의 역할과 소속 법인을 지정합니다.</p>
           </div>
           <Link className={styles.back} href="/">SEMS로 돌아가기</Link>
         </header>
@@ -205,13 +223,13 @@ export default function UserManagementPage() {
                 <input value={form.department} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} />
               </label>
               <label className={styles.field}>권한
-                <select value={form.role} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value as Role }))}>
-                  {(Object.keys(roleLabels) as Role[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
+                <select value={form.role} onChange={(event) => { const role=event.target.value as SemsRole; setForm((current) => ({ ...current, role, organizationId:role==="admin"?"":current.organizationId, siteId:role==="admin"?"":current.siteId })); }}>
+                  {SEMS_ROLES.map((role) => <option key={role} value={role}>{SEMS_ROLE_LABELS[role]} · {roleDescriptions[role]}</option>)}
                 </select>
               </label>
               <label className={styles.field}>소속 법인
-                <select value={form.organizationId} onChange={(event) => setForm((current) => ({ ...current, organizationId: event.target.value, siteId: "" }))}>
-                  <option value="">전체 또는 미지정</option>
+                <select required={form.role !== "admin"} value={form.organizationId} onChange={(event) => setForm((current) => ({ ...current, organizationId: event.target.value, siteId: "" }))}>
+                  <option value="">{form.role === "admin" ? "전체 법인" : "소속 법인 선택"}</option>
                   {organizations.filter((organization) => organization.active).map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
                 </select>
               </label>
@@ -256,8 +274,8 @@ export default function UserManagementPage() {
                       <td><div className={styles.name}><strong>{profile.display_name || "이름 미등록"}</strong><span>{profile.email}</span></div></td>
                       <td>{profile.department || "-"}</td>
                       <td>
-                        <select className={styles.inlineSelect} value={profile.role} onChange={(event) => updateLocal(profile.id, { role: event.target.value as Role })}>
-                          {(Object.keys(roleLabels) as Role[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
+                        <select className={styles.inlineSelect} value={profile.role} onChange={(event) => updateLocal(profile.id, { role: event.target.value as SemsRole })}>
+                          {SEMS_ROLES.map((role) => <option key={role} value={role}>{SEMS_ROLE_LABELS[role]}</option>)}
                         </select>
                       </td>
                       <td>

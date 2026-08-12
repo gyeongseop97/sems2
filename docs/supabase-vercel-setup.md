@@ -81,6 +81,19 @@ against the authenticated profile:
 The service-role key is used only inside the server route after the access token
 and profile role have been verified. The browser never receives it.
 
+## Three-role authorization migration
+
+After the base schema, run
+`supabase/migrations/20260812_three_role_authorization.sql` once. It converts
+legacy `manager` accounts to `admin` and enforces the current roles:
+
+- `admin`: all organizations, edits, reviews, approvals, settings and users;
+- `editor`: own-organization reads and assigned-request input/submission;
+- `viewer`: own-organization read-only.
+
+The migration also prevents editors from bypassing request/status validation by
+updating the transitional `workspace_states` JSON directly.
+
 Evidence files are stored in the private `sems2-evidence` bucket. The application
 uses short-lived signed URLs for downloads and keeps document metadata, indicator
 links, framework mappings, version, validity, and review state in the workspace.
