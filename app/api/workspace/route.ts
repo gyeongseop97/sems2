@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isAdminRole, normalizeSemsRole, type SemsRole, type StoredSemsRole } from "@/lib/access-control";
 import { DEFAULT_EMISSION_FACTORS, withDefaultEmissionFactors } from "@/lib/emission-factor-library";
+import { buildGHGCollectionTasks, buildMetricCollectionTasks } from "@/lib/collection-task-expansion";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -179,24 +180,24 @@ function filterCompanyRows(rows: unknown[], organizationName: string, key: "comp
   return rows.filter((value) => asRow(value)[key] === organizationName);
 }
 
-function scopeWorkspaceForOrganization(globalValue: unknown, organizationValue: unknown, organizationName: string, sites: string[]) {
+function scopeWorkspaceForOrganization(globalValue: unknown, organizationValue: unknown, organizationName: string, sites: string[], assignedSite?: string | null) {
   const global = normalizeWorkspace(globalValue);
   const organization = normalizeWorkspace(organizationValue);
   return {
     ...global,
     periods: filterAssignedRows(global.periods, organizationName, "companies"),
-    records: filterCompanyRows(organization.records, organizationName, "company"),
+    records: filterCompanyRows(organization.records, organizationName, "company").filter(value => !assignedSite || asRow(value).site === assignedSite),
     assetUnits: filterCompanyRows(global.assetUnits, organizationName, "company"),
     scope3Requests: filterAssignedRows(global.scope3Requests, organizationName, "organizationScope"),
     supplyChainAssessments: [],
-    evidence: organization.evidence
+    evidence: [...global.evidence.filter(value => !asRow(value).organization), ...organization.evidence]
       .filter((value) => !asRow(value).organization || asRow(value).organization === organizationName)
       .map((value) => ({ ...asRow(value), organization: organizationName })),
     metricRequests: filterAssignedRows(global.metricRequests, organizationName, "companies"),
-    metricSubmissions: filterCompanyRows(organization.metricSubmissions, organizationName, "company"),
+    metricSubmissions: filterCompanyRows(organization.metricSubmissions, organizationName, "company").filter(value => !assignedSite || asRow(value).site === assignedSite),
     reports: filterCompanyRows(global.reports, organizationName, "organization"),
-    targets: filterCompanyRows(organization.targets, organizationName, "company"),
-    plans: filterCompanyRows(organization.plans, organizationName, "company"),
+    targets: [...global.targets.filter(value => asRow(value).company === "그룹 전체"), ...filterCompanyRows(organization.targets, organizationName, "company")].filter(value => !assignedSite || !asRow(value).site || asRow(value).site === assignedSite),
+    plans: filterCompanyRows(organization.plans, organizationName, "company").filter(value => !assignedSite || !asRow(value).site || asRow(value).site === assignedSite),
     audit: organization.audit,
     organizations: { [organizationName]: sites },
   } satisfies WorkspacePayload;
@@ -281,8 +282,10 @@ export async function GET(request: NextRequest) {
           rows.find((row) => row.organization_id === auth.profile.organization_id)?.payload,
           auth.profile.organization!.name,
           directory[auth.profile.organization!.name] ?? [],
+          auth.profile.site?.name,
         );
     if (isAdmin) payload.organizations = directory;
+    else if (auth.profile.organization?.name) payload.organizations = { [auth.profile.organization.name]: auth.profile.site?.name ? [auth.profile.site.name] : (directory[auth.profile.organization.name] ?? []) };
 
     return NextResponse.json({ profile: auth.profile, payload, organizationCount: isAdmin ? organizations.length : 1 });
   } catch (error) {
@@ -305,16 +308,86 @@ function mergeEditorRows(
     const key = String(current.id ?? rowKey(value, "records"));
     const next = incoming.get(key);
     incoming.delete(key);
-    if (isProtected(current) || !canEdit(current)) {
+    const isWithdrawal = Boolean(next && current.status === "검토대기" && next.status === "작성중");
+    if ((isProtected(current) && !isWithdrawal) || !canEdit(current)) {
       result.push(current);
     } else if (next) {
       result.push(sanitize(next, current));
+    } else {
+      // A browser may save an older snapshot after another editor has added a
+      // row. Preserve rows omitted from that snapshot; explicit removals are
+      // represented by an inactive tombstone from the client.
+      result.push(current);
     }
   }
   for (const next of incoming.values()) {
     if (canEdit(next)) result.push(sanitize(next));
   }
   return result;
+}
+
+function mergeAdminRows(existingRows: unknown[], incomingRows: unknown[]) {
+  const incoming = new Map(incomingRows.map((value) => [String(asRow(value).id ?? rowKey(value, "records")), asRow(value)]));
+  const result: DataRow[] = [];
+  for (const value of existingRows) {
+    const current = asRow(value);
+    const key = String(current.id ?? rowKey(value, "records"));
+    const next = incoming.get(key);
+    incoming.delete(key);
+    result.push(next ? { ...current, ...next } : current);
+  }
+  return [...result, ...incoming.values()];
+}
+
+function changedRows(existingRows: unknown[], incomingRows: unknown[]) {
+  const existing = new Map(existingRows.map(value => [String(asRow(value).id ?? rowKey(value, "records")), asRow(value)]));
+  return incomingRows.filter(value => {
+    const row = asRow(value);
+    const current = existing.get(String(row.id ?? rowKey(value, "records")));
+    return !current || JSON.stringify(current) !== JSON.stringify(row);
+  });
+}
+
+function invalidMonth(value: unknown) {
+  return !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(value ?? ""));
+}
+
+function validateActivityRows(rows: unknown[], periods: Map<string, DataRow>, organizationName: string, directory: Record<string, string[]>, assignedSite?: string | null) {
+  for (const value of rows) {
+    const row = asRow(value);
+    if (row.company !== organizationName) return "소속 법인 자료만 저장할 수 있습니다.";
+    if (invalidMonth(row.period)) return "귀속월은 YYYY-MM 형식이어야 합니다.";
+    if (!Number.isFinite(Number(row.usage)) || Number(row.usage) <= 0) return "사용량은 0보다 큰 숫자여야 합니다.";
+    if (!Number.isFinite(Number(row.factor)) || Number(row.factor) < 0) return "배출계수는 0 이상 숫자여야 합니다.";
+    if (!Number.isFinite(Number(row.emissions)) || Number(row.emissions) < 0) return "배출량은 0 이상 숫자여야 합니다.";
+    const expected = Math.round(Number(row.usage) * Number(row.factor) / 1000 * 100) / 100;
+    if (Math.abs(expected - Number(row.emissions)) > 0.01) return "사용량·배출계수와 배출량이 일치하지 않습니다.";
+    if (!(directory[organizationName] ?? []).includes(String(row.site ?? ""))) return "등록된 사업장만 선택할 수 있습니다.";
+    if (assignedSite && row.site !== assignedSite) return "지정된 사업장 자료만 저장할 수 있습니다.";
+    const period = periods.get(String(row.collectionId ?? ""));
+    if (!period || period.status !== "수집중" || !Array.isArray(period.companies) || !period.companies.includes(organizationName)) return "현재 수집중인 기간과 대상 법인만 입력할 수 있습니다.";
+    const requested = buildGHGCollectionTasks(period as never).some(task => task.company === organizationName && task.targetId === row.scope && task.period === row.period);
+    if (!requested) return "수집 요청에 포함되지 않은 법인·Scope·귀속월입니다.";
+  }
+  return null;
+}
+
+function validateMetricRows(rows: unknown[], requests: Map<string, DataRow>, indicators: Map<string, DataRow>, organizationName: string, directory: Record<string, string[]>, assignedSite?: string | null) {
+  for (const value of rows) {
+    const row = asRow(value);
+    if (row.company !== organizationName) return "소속 법인 자료만 저장할 수 있습니다.";
+    if (invalidMonth(row.period)) return "귀속월은 YYYY-MM 형식이어야 합니다.";
+    if (!Number.isFinite(Number(row.value)) || Number(row.value) < 0) return "정량지표 값은 0 이상 숫자여야 합니다.";
+    if (!(directory[organizationName] ?? []).includes(String(row.site ?? ""))) return "등록된 사업장만 선택할 수 있습니다.";
+    if (assignedSite && row.site !== assignedSite) return "지정된 사업장 자료만 저장할 수 있습니다.";
+    const request = requests.get(String(row.requestId ?? ""));
+    const indicator = indicators.get(String(row.indicatorId ?? ""));
+    if (!request || request.status !== "수집중" || !Array.isArray(request.companies) || !request.companies.includes(organizationName)) return "현재 수집중인 정량데이터 요청만 입력할 수 있습니다.";
+    if (!indicator || !Array.isArray(request.indicatorIds) || !request.indicatorIds.map(String).includes(String(row.indicatorId ?? ""))) return "요청에 포함되지 않은 정량지표입니다.";
+    const requested = buildMetricCollectionTasks(request as never, [indicator as never]).some(task => task.company === organizationName && task.targetId === Number(row.indicatorId) && task.period === row.period);
+    if (!requested) return "수집 요청에 포함되지 않은 법인·지표·귀속월입니다.";
+  }
+  return null;
 }
 
 function sanitizeAudit(existing: unknown[], incoming: unknown[], profile: Profile, organizationName: string) {
@@ -368,6 +441,8 @@ export async function PATCH(request: NextRequest) {
       const existing = normalizeWorkspace(stateRows?.find((row) => row.scope_key === scopeKey)?.payload);
       const periods = new Map(global.periods.map((value) => [String(asRow(value).id ?? ""), asRow(value)]));
       const requests = new Map(global.metricRequests.map((value) => [String(asRow(value).id ?? ""), asRow(value)]));
+      const indicators = new Map(global.indicators.map((value) => [String(asRow(value).id ?? ""), asRow(value)]));
+      const { directory } = await getOrganizationDirectory();
       const canEditRecord = (row: DataRow) => {
         const period = periods.get(String(row.collectionId ?? ""));
         return row.company === organizationName
@@ -385,6 +460,11 @@ export async function PATCH(request: NextRequest) {
           && requestRow.indicatorIds.map(String).includes(String(row.indicatorId ?? ""));
       };
 
+      const activityValidation = validateActivityRows(changedRows(existing.records, payload.records.filter((value) => asRow(value).company === organizationName)), periods, organizationName, directory, auth.profile.site?.name);
+      if (activityValidation) return NextResponse.json({ error: activityValidation }, { status: 400 });
+      const metricValidation = validateMetricRows(changedRows(existing.metricSubmissions, payload.metricSubmissions.filter((value) => asRow(value).company === organizationName)), requests, indicators, organizationName, directory, auth.profile.site?.name);
+      if (metricValidation) return NextResponse.json({ error: metricValidation }, { status: 400 });
+
       const records = mergeEditorRows(
         existing.records,
         payload.records.filter((value) => asRow(value).company === organizationName),
@@ -393,7 +473,7 @@ export async function PATCH(request: NextRequest) {
         (row, current) => ({
           ...row,
           company: organizationName,
-          status: row.status === "검토대기" ? "검토대기" : current?.status === "반려" ? "반려" : "작성중",
+          status: row.status === "검토대기" ? "검토대기" : row.status === "작성중" ? "작성중" : current?.status === "반려" ? "반려" : "작성중",
           locked: false,
         }),
       );
@@ -405,7 +485,7 @@ export async function PATCH(request: NextRequest) {
         (row, current) => ({
           ...row,
           company: organizationName,
-          status: row.status === "검토대기" ? "검토대기" : current?.status === "반려" ? "반려" : "작성중",
+          status: row.status === "검토대기" ? "검토대기" : row.status === "작성중" ? "작성중" : current?.status === "반려" ? "반려" : "작성중",
         }),
       );
       const evidence = mergeEditorRows(
@@ -445,6 +525,8 @@ export async function PATCH(request: NextRequest) {
     }
 
     const { organizations } = await getOrganizationDirectory();
+    const { data: existingStates } = await auth.admin.from("workspace_states").select("scope_key,payload").in("scope_key", ["global", ...organizations.map(organization => `organization:${organization.id}`)]);
+    const existingByScope = new Map((existingStates ?? []).map(row => [String(row.scope_key), normalizeWorkspace(row.payload)]));
     const globalPayload: WorkspacePayload = {
       ...payload,
       records: [],
@@ -467,9 +549,9 @@ export async function PATCH(request: NextRequest) {
       const name = organization.name;
       const organizationPayload: WorkspacePayload = {
         ...EMPTY_WORKSPACE,
-        records: filterCompanyRows(payload.records, name, "company"),
-        metricSubmissions: filterCompanyRows(payload.metricSubmissions, name, "company"),
-        evidence: filterCompanyRows(payload.evidence, name, "organization"),
+        records: mergeAdminRows(existingByScope.get(`organization:${organization.id}`)?.records ?? [], filterCompanyRows(payload.records, name, "company")),
+        metricSubmissions: mergeAdminRows(existingByScope.get(`organization:${organization.id}`)?.metricSubmissions ?? [], filterCompanyRows(payload.metricSubmissions, name, "company")),
+        evidence: mergeAdminRows(existingByScope.get(`organization:${organization.id}`)?.evidence ?? [], filterCompanyRows(payload.evidence, name, "organization")),
         targets: filterCompanyRows(payload.targets, name, "company"),
         plans: filterCompanyRows(payload.plans, name, "company"),
         audit: payload.audit.filter((value) => asRow(value).organization === name),
