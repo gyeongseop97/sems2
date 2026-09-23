@@ -1584,12 +1584,12 @@ function Periods({ periods, records, organizationNames, organizations, onChange,
     setEditing(null); showToast(exists ? "수집기간 설정을 수정했습니다." : "새 수집기간을 개설했습니다.");
   };
   const remove = (period: CollectionPeriod) => {
-    const linked = records.filter(record=>record.collectionId===period.id);
+    const linked = records.filter(record=>record.collectionId===period.id && record.active!==false);
     if(linked.length){showToast(`연결된 활동자료 ${linked.length}건이 있어 삭제할 수 없습니다. 자료를 먼저 정리해 주세요.`);return;}
     if(!window.confirm(`"${period.name}" 수집 요청을 삭제하시겠습니까?`))return;
     onChange(periods.filter(item=>item.id!==period.id));
     addAudit("수집기간 삭제",period.name,"연결된 활동자료가 없는 수집 요청을 삭제했습니다.");
-    setEditing(null);showToast("수집 요청을 삭제했습니다.");
+    setEditing(null);showToast("수집 요청 삭제를 서버에 저장 중입니다. 상단 저장 완료를 확인해 주세요.");
   };
   return <><PageHeader eyebrow="COLLECTION PERIOD" title="수집 기간 관리" description="귀속기간, 대상 법인·Scope, 제출·검토 마감과 잠금 상태를 운영합니다.">{canManage&&<button className="primary-button" onClick={() => setEditing("new")}><Icon name="plus" size={17}/>수집기간 개설</button>}</PageHeader>
     <section className="period-summary collection-summary"><SummaryTile label="수집 진행" value={periods.filter(item=>item.status==="수집중").length} suffix="건" icon="calendar" tone="green"/><SummaryTile label="검토 진행" value={periods.filter(item=>item.status==="검토중").length} suffix="건" icon="clock" tone="amber"/><SummaryTile label="예정" value={periods.filter(item=>item.status==="예정").length} suffix="건" icon="list"/><SummaryTile label="잠금 완료" value={periods.filter(item=>item.status==="잠금").length} suffix="건" icon="lock"/></section>
