@@ -1,3 +1,4 @@
+import { canCollect, submissionExpired } from "@/lib/submission-deadline";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -365,7 +366,8 @@ function validateActivityRows(rows: unknown[], periods: Map<string, DataRow>, or
     if (!(directory[organizationName] ?? []).includes(String(row.site ?? ""))) return "등록된 사업장만 선택할 수 있습니다.";
     if (assignedSite && row.site !== assignedSite) return "지정된 사업장 자료만 저장할 수 있습니다.";
     const period = periods.get(String(row.collectionId ?? ""));
-    if (!period || period.status !== "수집중" || !Array.isArray(period.companies) || !period.companies.includes(organizationName)) return "현재 수집중인 기간과 대상 법인만 입력할 수 있습니다.";
+    if (submissionExpired(period)) return "제출기한이 마감되었습니다. 관리자에게 기한 연장을 요청해 주세요.";
+    if (!period || !canCollect(period) || !Array.isArray(period.companies) || !period.companies.includes(organizationName)) return "현재 수집중인 기간과 대상 법인만 입력할 수 있습니다.";
     const requested = buildGHGCollectionTasks(period as never).some(task => task.company === organizationName && task.targetId === row.scope && task.period === row.period);
     if (!requested) return "수집 요청에 포함되지 않은 법인·Scope·귀속월입니다.";
   }
@@ -382,7 +384,8 @@ function validateMetricRows(rows: unknown[], requests: Map<string, DataRow>, ind
     if (assignedSite && row.site !== assignedSite) return "지정된 사업장 자료만 저장할 수 있습니다.";
     const request = requests.get(String(row.requestId ?? ""));
     const indicator = indicators.get(String(row.indicatorId ?? ""));
-    if (!request || request.status !== "수집중" || !Array.isArray(request.companies) || !request.companies.includes(organizationName)) return "현재 수집중인 정량데이터 요청만 입력할 수 있습니다.";
+    if (submissionExpired(request)) return "제출기한이 마감되었습니다. 관리자에게 기한 연장을 요청해 주세요.";
+    if (!request || !canCollect(request) || !Array.isArray(request.companies) || !request.companies.includes(organizationName)) return "현재 수집중인 정량데이터 요청만 입력할 수 있습니다.";
     if (!indicator || !Array.isArray(request.indicatorIds) || !request.indicatorIds.map(String).includes(String(row.indicatorId ?? ""))) return "요청에 포함되지 않은 정량지표입니다.";
     const requested = buildMetricCollectionTasks(request as never, [indicator as never]).some(task => task.company === organizationName && task.targetId === Number(row.indicatorId) && task.period === row.period);
     if (!requested) return "수집 요청에 포함되지 않은 법인·지표·귀속월입니다.";
@@ -446,14 +449,14 @@ export async function PATCH(request: NextRequest) {
       const canEditRecord = (row: DataRow) => {
         const period = periods.get(String(row.collectionId ?? ""));
         return row.company === organizationName
-          && period?.status === "수집중"
+          && canCollect(period)
           && Array.isArray(period.companies)
           && period.companies.includes(organizationName);
       };
       const canEditSubmission = (row: DataRow) => {
         const requestRow = requests.get(String(row.requestId ?? ""));
         return row.company === organizationName
-          && requestRow?.status === "수집중"
+          && canCollect(requestRow)
           && Array.isArray(requestRow.companies)
           && requestRow.companies.includes(organizationName)
           && Array.isArray(requestRow.indicatorIds)
@@ -527,6 +530,24 @@ export async function PATCH(request: NextRequest) {
     const { organizations } = await getOrganizationDirectory();
     const { data: existingStates } = await auth.admin.from("workspace_states").select("scope_key,payload").in("scope_key", ["global", ...organizations.map(organization => `organization:${organization.id}`)]);
     const existingByScope = new Map((existingStates ?? []).map(row => [String(row.scope_key), normalizeWorkspace(row.payload)]));
+    // Review/approval remains allowed after closure; new submissions do not.
+    for (const [rows, key, windows] of [
+      [payload.records, "collectionId", payload.periods],
+      [payload.metricSubmissions, "requestId", payload.metricRequests],
+    ] as const) {
+      const previous = new Map(Array.from(existingByScope.values()).flatMap(state =>
+        (key === "collectionId" ? state.records : state.metricSubmissions).map(value => {
+          const row = asRow(value); return [String(row.id), row] as const;
+        })));
+      const requests = new Map(windows.map(value => { const row = asRow(value); return [String(row.id), row] as const; }));
+      for (const value of rows) {
+        const row = asRow(value);
+        if (row.status === "검토대기" && JSON.stringify(previous.get(String(row.id))) !== JSON.stringify(row)
+          && !canCollect(requests.get(String(row[key])))) {
+          return NextResponse.json({ error: "제출이 마감되었습니다. 제출기한을 연장하고 수집중으로 변경해 주세요." }, { status: 400 });
+        }
+      }
+    }
     const globalPayload: WorkspacePayload = {
       ...payload,
       records: [],
