@@ -16,7 +16,7 @@ export type OperationReviewRow = {
 
 export function OperationsWorkbench({ rows, onAction }: {
   rows: OperationReviewRow[];
-  onAction: (id: number, action: "approve" | "reject" | "note", note: string) => void;
+  onAction: (id: number, action: "approve" | "reject" | "note" | "reopen", note: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
@@ -50,25 +50,30 @@ export function OperationsWorkbench({ rows, onAction }: {
   </section>;
 }
 
-function ReviewDetail({ row, onAction }: { row: OperationReviewRow; onAction: (id: number, action: "approve" | "reject" | "note", note: string) => void }) {
+function ReviewDetail({ row, onAction }: { row: OperationReviewRow; onAction: (id: number, action: "approve" | "reject" | "note" | "reopen", note: string) => void }) {
   const [tab, setTab] = useState("근거·산정");
-  const [note, setNote] = useState(row.reviewNote ?? "");
+  const [note, setNote] = useState(row.status === "확정" ? "" : row.reviewNote ?? "");
   const [error, setError] = useState("");
   const blocked = row.locked || row.status !== "검토대기";
   const hasError = row.checks.some(check => check.severity === "error");
-  const action = (value: "approve" | "reject" | "note") => {
+  const action = (value: "approve" | "reject" | "note" | "reopen") => {
+    if (value === "reopen") {
+      if (row.locked || row.status !== "확정") return;
+      if (!note.trim()) { setError("확정을 취소하는 사유를 입력해 주세요."); return; }
+      if (!window.confirm("확정을 취소하고 수정 요청 상태로 되돌리시겠습니까? 확정 집계에서 제외되며, 입력 화면에서 수정·삭제 후 다시 제출할 수 있습니다.")) return;
+    }
     if ((value === "reject" || value === "note") && !note.trim()) { setError("검토 의견을 입력해 주세요. 보완 요청에는 수정할 내용을 적어 주세요."); return; }
     setError(""); onAction(row.id, value, note.trim());
   };
   return <article className="card operations-detail">
-    <header className="operations-detail-head"><div><span className="operations-eyebrow">{row.company} / {row.site || "사업장 미지정"} · {row.period}</span><h2>{row.title}</h2><p>{row.owner} · {row.department} <span className="operations-tag">{row.dataStatus}</span></p></div><div className="operations-number"><strong>{row.dataStatus === "해당 없음" ? "해당 없음" : row.value}</strong><span>{row.status}{row.locked ? " · 기간 잠금" : ""}</span></div></header>
+    <header className="operations-detail-head"><div><span className="operations-eyebrow">{row.company} / {row.site || "사업장 미지정"} · {row.period}</span><h2>{row.title}</h2><p>{row.owner} · {row.department} <span className="operations-tag">{row.dataStatus}</span></p></div><div className="operations-number"><strong>{row.dataStatus === "해당 없음" ? "해당 없음" : row.value}</strong><span>{row.status}{row.locked ? " · 기간 마감·잠금" : ""}</span></div></header>
     <div className="operations-tabs" role="tablist" aria-label="검토 상세">{["근거·산정", "검증", "변경·검토 정보"].map(value => <button type="button" key={value} role="tab" aria-selected={tab === value} onClick={() => setTab(value)}>{value}{value === "검증" && <span>{row.checks.filter(check => check.severity !== "pass").length}</span>}</button>)}</div>
     <div className="operations-detail-body" role="tabpanel" aria-label={tab}>
       {tab === "근거·산정" && <><dl className="operations-facts">{row.facts.map((fact, index) => <div key={`${fact.label}-${index}`}><dt>{fact.label}</dt><dd>{fact.value || "미입력"}</dd></div>)}</dl>{row.detail}<div className="operations-description"><h3>입력 설명·변동 사유</h3><p>{row.description || "입력자가 남긴 설명이 없습니다."}</p></div>{row.rejectionReason && <div className="operations-callout warning"><strong>이전 보완 요청</strong><p>{row.rejectionReason}</p></div>}</>}
       {tab === "검증" && <div className="operations-checks">{row.checks.map((check, index) => <div key={`${check.title}-${index}`} className={`operations-check ${check.severity}`}><span aria-hidden="true">{check.severity === "pass" ? "✓" : "!"}</span><div><strong>{check.title}</strong><p>{check.detail}</p></div><small>{check.severity === "error" ? "수정 필요" : check.severity === "warning" ? "검토 필요" : "통과"}</small></div>)}<p className="operations-help">자동 검증은 입력값의 형식과 일관성을 검사합니다. 의미상 적정성은 담당자가 검토해야 합니다.</p></div>}
       {tab === "변경·검토 정보" && <><dl className="operations-facts"><div><dt>최근 자료 변경</dt><dd>{row.updatedAt}</dd></div><div><dt>최근 검토자</dt><dd>{row.reviewedBy || "검토 기록 없음"}</dd></div><div><dt>최근 검토 시각</dt><dd>{row.reviewedAt || "—"}</dd></div></dl><div className="operations-history">{row.history?.length ? [...row.history].reverse().map((item, index) => <div key={`${item.at}-${index}`}><strong>{item.action}</strong><span>{item.actor} · {item.at}</span><p>{item.note || "별도 의견 없음"}</p></div>) : <p>이 자료에 저장된 검토 이력이 없습니다. 전체 변경 이력은 감사 로그에서 확인하세요.</p>}</div></>}
     </div>
-    <div className="operations-review-footer"><label>검토 의견<textarea value={note} onChange={event => { setNote(event.target.value); setError(""); }} placeholder="산정 기준과 변동 사유의 확인 결과, 보완할 내용을 기록하세요." disabled={row.locked} /></label>{error && <p role="alert" className="form-error">{error}</p>}{hasError && row.status === "검토대기" && <p className="form-error">수정이 필요한 검증 오류가 있습니다. 보완 요청 후 다시 검토해 주세요.</p>}<div><span className="operations-help">의견과 처리 결과는 자료에 함께 저장됩니다.</span><button type="button" className="secondary-button" onClick={() => action("note")} disabled={row.locked}>의견 저장</button><button type="button" className="danger-button" onClick={() => action("reject")} disabled={blocked}>보완 요청</button><button type="button" className="primary-button" onClick={() => action("approve")} disabled={blocked || hasError}>검토 확정</button></div></div>
+    <div className="operations-review-footer">{row.status === "확정" && <p className="operations-help">{row.locked ? "마감·잠긴 수집기간입니다. 수집 요청에서 기간을 다시 열고 서버 저장이 완료된 후 확정을 취소하세요." : "사유를 남겨 확정을 취소하면 수정 요청 상태가 됩니다. 서버 저장 완료 후 입력 화면에서 수정·삭제할 수 있습니다. 입력 기한이 지났다면 수집 요청의 기한도 연장하세요."}</p>}<label>{row.status === "확정" ? "확정 취소 사유·검토 의견" : "검토 의견"}<textarea value={note} onChange={event => { setNote(event.target.value); setError(""); }} placeholder="산정 기준과 변동 사유의 확인 결과, 보완할 내용을 기록하세요." disabled={row.locked} /></label>{error && <p role="alert" className="form-error">{error}</p>}{hasError && row.status === "검토대기" && <p className="form-error">수정이 필요한 검증 오류가 있습니다. 보완 요청 후 다시 검토해 주세요.</p>}<div><span className="operations-help">의견과 처리 결과는 자료에 함께 저장됩니다.</span><button type="button" className="secondary-button" onClick={() => action("note")} disabled={row.locked}>의견 저장</button>{row.status === "확정" ? <button type="button" className="danger-button" onClick={() => action("reopen")} disabled={row.locked}>확정 취소·수정 요청</button> : <button type="button" className="danger-button" onClick={() => action("reject")} disabled={blocked}>보완 요청</button>}<button type="button" className="primary-button" onClick={() => action("approve")} disabled={blocked || hasError}>검토 확정</button></div></div>
   </article>;
 }
 
