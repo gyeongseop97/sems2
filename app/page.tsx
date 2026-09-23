@@ -41,7 +41,7 @@ import type { GriWorkbookDetailSeed } from "@/lib/gri-workbook-indicators";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { koreanHolidayName } from "@/lib/korean-holidays";
 
-type View = "dashboard" | "collection" | "collection-request" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
+type View = "tasks" | "dashboard" | "collection" | "collection-request" | "review" | "quality" | "inventory" | "targets" | "scope3" | "evidence" | "indicators" | "metric-collection" | "reports" | "reference" | "audit" | "settings";
 type Scope = "Scope 1" | "Scope 2" | "Scope 3";
 type RecordStatus = "작성중" | "검토대기" | "반려" | "확정";
 type EvidenceStatus = "검토중" | "승인" | "보완 요청" | "만료";
@@ -718,6 +718,7 @@ const DEFAULT_MASTER_INDICATORS:Indicator[] = [
 ];
 
 const navItems: { id: View; label: string; icon: IconName }[] = [
+  { id: "tasks", label: "내 할 일", icon: "list" },
   { id: "dashboard", label: "대시보드", icon: "dashboard" },
   { id: "collection-request", label: "수집 요청", icon: "calendar" },
   { id: "review", label: "데이터 검토·승인", icon: "check" },
@@ -734,7 +735,7 @@ const navItems: { id: View; label: string; icon: IconName }[] = [
 ];
 
 const NAV_GROUPS:{label:string;items:View[]}[]=[
-  {label:"현황",items:["dashboard"]},
+  {label:"현황",items:["tasks","dashboard"]},
   {label:"온실가스 관리",items:["inventory","quality","targets"]},
   {label:"ESG 데이터·공시",items:["collection-request","metric-collection","review","evidence","reports"]},
   {label:"공급망 관리",items:["scope3"]},
@@ -742,7 +743,8 @@ const NAV_GROUPS:{label:string;items:View[]}[]=[
 ];
 
 const VIEW_PATHS: Record<View, string> = {
-  dashboard: "/",
+  tasks: "/tasks",
+  dashboard: "/dashboard",
   collection: "/data-collection",
   "collection-request": "/collection-request",
   review: "/review",
@@ -1027,7 +1029,7 @@ export default function Home() {
   const { profile, syncStatus, canWrite, canReview, canManage, signOut } = useSemsAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const requestedView = viewFromPathname(pathname);
+  const requestedView = pathname.replace(/\/+$/, "") === "" ? (canWrite&&!canManage?"tasks":"dashboard") : viewFromPathname(pathname);
   const routeForbidden = (["review","collection-request"].includes(requestedView) && !canManage) || (requestedView === "quality" && !canReview) || (requestedView === "settings" && !canManage);
   const activeView = routeForbidden ? "dashboard" : requestedView;
   const [quickMetric,setQuickMetric]=useState<MetricEntryContext|null>(null);
@@ -1239,24 +1241,24 @@ export default function Home() {
 
   const roleLabel = SEMS_ROLE_LABELS[profile.role];
   const syncLabel = syncStatus === "saving" ? "서버 저장 중" : syncStatus === "error" ? "저장 실패 · 새로고침하지 마세요" : canWrite ? "서버 저장 완료" : "서버 조회 전용";
-  const allowedNavItems = navItems.map(item=>item.id==="dashboard"&&!canManage?{...item,label:canWrite?"내 할 일":"현황"}:item).filter(item => (!["review","collection-request"].includes(item.id) || canManage) && (item.id !== "quality" || canReview));
+  const allowedNavItems = navItems.filter(item => (!["review","collection-request"].includes(item.id) || canManage) && (item.id !== "quality" || canReview));
   const organizationNames = Object.keys(organizations);
 
   return <div className="app-shell">
     <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
       <div className="brand"><button type="button" className="brand-home" onClick={()=>navigate("dashboard")} aria-label="SEMS 대시보드로 이동"><div className="brand-mark"><span>S</span></div><div className="brand-copy"><strong>SEMS</strong><small>Sewon ESG Management</small></div></button><button className="icon-button sidebar-close" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기"><Icon name="close" /></button></div>
-      <nav className="main-nav" aria-label="주 메뉴">{NAV_GROUPS.filter(group=>canManage||moreMenus||group.items.some(id=>["dashboard","metric-collection","evidence"].includes(id))).map(group=>{const open=openNavGroups.includes(group.label);return <div className={`nav-section ${open?"open":"collapsed"}`} key={group.label}><button type="button" className="nav-group-toggle" aria-expanded={open} onClick={()=>setOpenNavGroups(current=>open?current.filter(label=>label!==group.label):[...current,group.label])}><span>{group.label}</span><Icon name="chevron" size={13}/></button><div className="nav-group-items" aria-hidden={!open}><div className="nav-group-items-inner">{group.items.filter(id=>canManage||moreMenus||["dashboard","metric-collection","evidence"].includes(id)).map(id=>allowedNavItems.find(item=>item.id===id)).filter((item):item is (typeof navItems)[number]=>Boolean(item)).map(item=><NavButton key={item.id} item={item} active={activeView===item.id} onClick={()=>navigate(item.id)} count={item.id==="review"?records.filter(r=>r.status==="검토대기").length+metricSubmissions.filter(item=>item.status==="검토대기").length:item.id==="scope3"?scope3Requests.filter(request=>["대기중","진행중","재요청"].includes(request.status)).length:undefined}/>)}</div></div></div>})}{!canManage&&<button className="nav-button" onClick={()=>setMoreMenus(value=>!value)} aria-expanded={moreMenus}><Icon name="menu"/><span>{moreMenus?"메뉴 접기":"전체 메뉴 보기"}</span></button>}</nav>
+      <nav className="main-nav" aria-label="주 메뉴">{NAV_GROUPS.filter(group=>canManage||moreMenus||group.items.some(id=>["tasks","dashboard","metric-collection","evidence"].includes(id))).map(group=>{const open=openNavGroups.includes(group.label);return <div className={`nav-section ${open?"open":"collapsed"}`} key={group.label}><button type="button" className="nav-group-toggle" aria-expanded={open} onClick={()=>setOpenNavGroups(current=>open?current.filter(label=>label!==group.label):[...current,group.label])}><span>{group.label}</span><Icon name="chevron" size={13}/></button><div className="nav-group-items" aria-hidden={!open}><div className="nav-group-items-inner">{group.items.filter(id=>canManage||moreMenus||["tasks","dashboard","metric-collection","evidence"].includes(id)).map(id=>allowedNavItems.find(item=>item.id===id)).filter((item):item is (typeof navItems)[number]=>Boolean(item)).map(item=><NavButton key={item.id} item={item} active={activeView===item.id} onClick={()=>navigate(item.id)} count={item.id==="review"?records.filter(r=>r.status==="검토대기").length+metricSubmissions.filter(item=>item.status==="검토대기").length:item.id==="scope3"?scope3Requests.filter(request=>["대기중","진행중","재요청"].includes(request.status)).length:undefined}/>)}</div></div></div>})}{!canManage&&<button className="nav-button" onClick={()=>setMoreMenus(value=>!value)} aria-expanded={moreMenus}><Icon name="menu"/><span>{moreMenus?"메뉴 접기":"전체 메뉴 보기"}</span></button>}</nav>
       <div className="sidebar-bottom">{canManage&&<><NavButton item={{ id:"settings", label:"시스템 설정", icon:"settings" }} active={activeView==="settings"} onClick={()=>navigate("settings")}/><Link className="nav-button" href="/admin/users" onClick={()=>setMobileMenu(false)}><Icon name="building"/><span>사용자 관리</span></Link></>}<div className="help-card"><div className="help-icon">?</div><strong>도움이 필요하신가요?</strong><p>입력 기준과 실제 사용 순서를 확인하세요.</p><button onClick={() => { setGuideOpen(true); setMobileMenu(false); }}>사용 가이드 <Icon name="arrow" size={14} /></button></div></div>
     </aside>
     {mobileMenu && <button className="mobile-overlay" onClick={() => setMobileMenu(false)} aria-label="메뉴 닫기" />}
     <div className="workspace">
-      <header className="topbar"><button className="icon-button mobile-menu-button" onClick={() => setMobileMenu(true)} aria-label="메뉴 열기"><Icon name="menu" /></button><div className="breadcrumb"><span>SEMS</span><Icon name="chevron" size={14} /><strong>{activeView==="dashboard"&&!canManage?(canWrite?"내 할 일":"현황"):navItems.find(n => n.id === activeView)?.label ?? "시스템 설정"}</strong></div><div className="topbar-actions"><div role="status" aria-live="polite" className={`sync-label operating ${syncStatus}`}><span /> {syncLabel}{syncStatus==="error"&&<button className="outline-small" onClick={()=>window.dispatchEvent(new Event(WORKSPACE_CHANGE_EVENT))}>다시 저장</button>}</div><button className="icon-button notification-button" onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileOpen(false); }} aria-label="알림"><Icon name="bell" />{!notificationsRead && <span className="notification-dot" />}</button><button className="profile profile-button" onClick={() => { setProfileOpen(!profileOpen); setNotificationsOpen(false); }}><div className="avatar">{(profile.display_name || profile.email || "S").slice(0,1)}</div><div><strong>{profile.display_name || profile.email}</strong><span>{profile.department || profile.organization?.name || "소속 미지정"} · {roleLabel}</span></div><Icon name="chevron" size={15} /></button></div>
+      <header className="topbar"><button className="icon-button mobile-menu-button" onClick={() => setMobileMenu(true)} aria-label="메뉴 열기"><Icon name="menu" /></button><div className="breadcrumb"><span>SEMS</span><Icon name="chevron" size={14} /><strong>{navItems.find(n => n.id === activeView)?.label ?? "시스템 설정"}</strong></div><div className="topbar-actions"><div role="status" aria-live="polite" className={`sync-label operating ${syncStatus}`}><span /> {syncLabel}{syncStatus==="error"&&<button className="outline-small" onClick={()=>window.dispatchEvent(new Event(WORKSPACE_CHANGE_EVENT))}>다시 저장</button>}</div><button className="icon-button notification-button" onClick={() => { setNotificationsOpen(!notificationsOpen); setProfileOpen(false); }} aria-label="알림"><Icon name="bell" />{!notificationsRead && <span className="notification-dot" />}</button><button className="profile profile-button" onClick={() => { setProfileOpen(!profileOpen); setNotificationsOpen(false); }}><div className="avatar">{(profile.display_name || profile.email || "S").slice(0,1)}</div><div><strong>{profile.display_name || profile.email}</strong><span>{profile.department || profile.organization?.name || "소속 미지정"} · {roleLabel}</span></div><Icon name="chevron" size={15} /></button></div>
         {notificationsOpen && <NotificationPanel periods={periods} records={records} targets={targets} plans={plans} onClose={() => setNotificationsOpen(false)} onRead={() => { setNotificationsRead(true); setNotificationsOpen(false); showToast("모든 알림을 확인했습니다."); }} />}
         {profileOpen && <ProfilePanel profileName={profile.display_name || profile.email || "사용자"} detail={`${profile.department || profile.organization?.name || "소속 미지정"} · ${roleLabel}`} canManage={canManage} onSettings={() => navigate("settings")} onSignOut={signOut} />}
       </header>
       <main className="content">
-        {activeView === "dashboard" && <WorkDesk records={records} periods={periods} requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canManage={canManage} canWrite={canWrite} onRecord={record=>{if(!canWrite)return;setEditing(record);setModalOpen(true);}} onMetric={setQuickMetric} factors={factors} owner={profile.display_name||profile.email||""} department={profile.department||""}/> }
-        {activeView === "dashboard" && (canManage||!canWrite) && <Dashboard records={records} periods={periods} metricRequests={metricRequests} metricSubmissions={metricSubmissions} indicators={indicators} targets={targets} plans={plans} organizationNames={organizationNames} currentOrganization={profile.organization?.name??""} canWrite={canWrite} canReview={canReview} onNavigate={navigate} onOpenInputRequest={kind=>{setCollectionKind(kind);navigate("metric-collection");}} onNew={() => openForm()} />}
+        {activeView === "tasks" && <WorkDesk records={records} periods={periods} requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canManage={canManage} canWrite={canWrite} onRecord={record=>{if(!canWrite)return;setEditing(record);setModalOpen(true);}} onMetric={setQuickMetric} factors={factors} owner={profile.display_name||profile.email||""} department={profile.department||""}/> }
+        {activeView === "dashboard" && <Dashboard records={records} periods={periods} metricRequests={metricRequests} metricSubmissions={metricSubmissions} indicators={indicators} targets={targets} plans={plans} organizationNames={organizationNames} currentOrganization={profile.organization?.name??""} canWrite={canWrite} canReview={canReview} onNavigate={navigate} onOpenInputRequest={kind=>{setCollectionKind(kind);navigate("metric-collection");}} onNew={() => openForm()} />}
         {activeView === "review" && <><CollectionKindHeader kind={reviewKind} onChange={setReviewKind} description="온실가스와 기타 ESG 제출자료를 검토하고 승인·반려합니다." />{reviewKind==="ghg"?<Review records={records} periods={periods} criteria={criteria} onChange={updateRecords} showToast={showToast} />:<MetricCollection mode="review" requests={metricRequests} submissions={metricSubmissions} indicators={indicators} organizations={organizations} canWrite={canWrite} canManage={canManage} currentOrganization={profile.organization?.name??""} defaultOwner={profile.display_name||profile.email||""} defaultDepartment={profile.department||""} onRequestsChange={setMetricRequests} onSubmissionsChange={setMetricSubmissions} onIndicatorsChange={setIndicators} addAudit={addAudit} showToast={showToast} />}</>}
         {activeView === "quality" && <DataQuality records={records} periods={periods} criteria={criteria} onNavigate={navigate} />}
         {activeView === "inventory" && <Inventory records={records} targets={targets} organizationNames={organizationNames} onNavigate={navigate} showToast={showToast} />}
