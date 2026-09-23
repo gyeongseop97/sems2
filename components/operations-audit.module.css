@@ -1,0 +1,32 @@
+.panel { padding: 22px; margin-bottom: 22px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.header h2 { font-size: 18px; margin: 0 0 8px; }
+.header p, .note { color: var(--muted, #64748b); font-size: 13px; line-height: 1.6; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.note { margin-top: 12px; }
+.list { margin-top: 18px; }
+.entry { border-top: 1px solid var(--border, #dfe5ed); }
+.entry:last-child { border-bottom: 1px solid var(--border, #dfe5ed); }
+.entry summary { display: flex; align-items: center; gap: 16px; padding: 16px 0; cursor: pointer; }
+.kind { background: #eaf1ff; color: #244b8f; border-radius: 6px; font-size: 12px; padding: 5px 8px; white-space: nowrap; }
+.subject { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.subject span { font-size: 12px; overflow-wrap: anywhere; color: var(--muted, #64748b); }
+.actor { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+.actor time, .count { color: var(--muted, #64748b); font-size: 12px; }
+.tableWrap { overflow: auto; margin-bottom: 16px; }
+.tableWrap table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 13px; }
+.tableWrap th, .tableWrap td { padding: 12px; text-align: left; border: 1px solid var(--border, #dfe5ed); vertical-align: top; }
+.tableWrap th:first-child { width: 22%; }
+.tableWrap thead { background: var(--bg, #f4f7fb); }
+.tableWrap pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; margin: 0; line-height: 1.6; max-height: 240px; overflow: auto; }
+.error { margin-top: 16px; border: 1px solid #efb6b6; background: #fff4f4; color: #a33030; padding: 14px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.footer { padding-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: var(--muted, #64748b); }
+.empty { padding: 28px 0; text-align: center; color: var(--muted, #64748b); }
+@media (max-width: 700px) {
+  .panel { padding: 16px; }
+  .header { flex-direction: column; }
+  .entry summary { flex-wrap: wrap; gap: 10px; }
+  .subject { flex-basis: calc(100% - 80px); }
+  .actor { margin-left: 52px; flex: 1; }
+  .error { align-items: flex-start; flex-direction: column; }
+}

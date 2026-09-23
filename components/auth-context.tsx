@@ -4,7 +4,7 @@ import { createContext, useContext } from "react";
 
 import type { SemsRole } from "@/lib/access-control";
 
-export type SyncStatus = "saved" | "saving" | "error";
+export type SyncStatus = "saved" | "saving" | "error" | "conflict";
 
 export type SemsProfile = {
   id: string;
@@ -22,6 +22,10 @@ export type SemsProfile = {
 type AuthContextValue = {
   profile: SemsProfile;
   syncStatus: SyncStatus;
+  syncError: string;
+  retrySync: () => void;
+  reloadWorkspace: () => Promise<void>;
+  downloadLocalChanges: () => void;
   canWrite: boolean;
   canReview: boolean;
   canManage: boolean;

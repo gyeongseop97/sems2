@@ -113,7 +113,7 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(taskExpansion, /buildMetricCollectionTasks/);
   assert.match(taskExpansion, /buildGHGCollectionTasks/);
   assert.match(taskExpansion, /classifyCollectionTasks/);
-  assert.match(page, /수집 커버리지 현황/);
+  assert.match(page, /OperationsSiteCoverage/);
   assert.match(page, /미요청은 요청 범위에서 빠진 항목/);
   assert.match(page, /기타 ESG는 지표의 월·분기·반기·연 수집 주기를 반영합니다/);
   assert.match(collectionCoverage, /buildGHGCoverage/);
@@ -175,7 +175,7 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /공급망 수준 진단 요청/);
   assert.match(page, /scope3: "\/scope3-supply-chain"/);
   assert.match(page, /NAV_GROUPS/);
-  assert.match(page, /소속 법인 데이터 조회와 요청된 활동자료·정량데이터·증빙 입력 및 제출/);
+  assert.match(page, /조회자는 자료를 등록하거나 수정할 수 없습니다/);
   assert.match(page, /const allowedNavItems = navItems\.filter/);
   assert.match(page, /item\.id !== "quality" \|\| canReview/);
   assert.match(accessControl, /\["admin", "editor", "viewer"\]/);
