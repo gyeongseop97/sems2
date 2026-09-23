@@ -38,3 +38,15 @@ test("a row cannot move across company or site boundaries", () => {
   assert.match(validateWorkspaceTransition(draft,{...draft,site:"공장 B"},false)!, /사업장/);
   assert.match(validateWorkspaceTransition(draft,{...draft,company:"법인 B"},true)!, /법인/);
 });
+
+test("reopening preserves values, requires a reason, and unlocks later edits and deletion", () => {
+  const reopened = {...confirmed,status:"반려",locked:false,rejectionReason:"입력값 정정",reviewHistory:[{action:"자료 확정"},{action:"확정 취소",note:"입력값 정정"}]};
+  assert.notEqual(validateWorkspaceTransition(confirmed,{...reopened,rejectionReason:" "},true),null);
+  assert.notEqual(validateWorkspaceTransition(confirmed,{...reopened,usage:200},true),null);
+  assert.notEqual(validateWorkspaceTransition(confirmed,{...confirmed,active:false},true),null);
+  assert.equal(validateWorkspaceTransition(confirmed,reopened,true),null);
+  for(const isAdmin of [true,false]) {
+    assert.equal(validateWorkspaceTransition(reopened,{...reopened,usage:200,status:"작성중"},isAdmin),null);
+    assert.equal(validateWorkspaceTransition(reopened,{...reopened,active:false},isAdmin),null);
+  }
+});
