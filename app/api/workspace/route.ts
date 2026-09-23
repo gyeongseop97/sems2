@@ -1,3 +1,8 @@
+import { getWorkspaceClosingIssues, type ClosingRequest, type ClosingRow, type ClosingIndicator } from "@/lib/workspace-closing";
+import { validateMetricRatio } from "@/lib/workspace-metrics";
+import { validateEmissionIntegrity } from "@/lib/workspace-emissions";
+import { validateDataValue, type DataStatus } from "@/lib/metric-aggregation";
+import { collectionTaskMatchesRow, mergeWorkspaceRows as mergeAdminRows, validateClosedRequestChange, revisionConflicts, stableWorkspaceJson, validateWorkspaceTransition, type WorkspaceRevisions } from "@/lib/workspace-integrity";
 import { canCollect, submissionExpired } from "@/lib/submission-deadline";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
@@ -53,7 +58,7 @@ type Profile = {
 };
 
 type StoredProfile = Omit<Profile, "role"> & { role: StoredSemsRole };
-type WorkspaceRow = { scope_key: string; organization_id: string | null; payload: unknown };
+type WorkspaceRow = { scope_key: string; organization_id: string | null; payload: unknown; revision: number };
 type DataRow = Record<string, unknown>;
 
 const EMPTY_WORKSPACE: WorkspacePayload = {
@@ -256,23 +261,50 @@ async function getOrganizationDirectory() {
   return { organizations: organizations ?? [], directory };
 }
 
+const MIGRATION_ERROR = "안전한 저장을 위한 데이터베이스 업데이트가 필요합니다. 관리자에게 20260923_workspace_integrity.sql 적용을 요청해 주세요. 현재 변경사항은 서버에 저장되지 않았습니다.";
+function persistenceError(error: { message: string; code?: string }) {
+  return /revision|workspace_change_log|save_workspace_checked|workspace_save_receipts/.test(error.message) || ["42703", "42P01", "PGRST202", "PGRST204"].includes(error.code ?? "") ? MIGRATION_ERROR : error.message;
+}
+function revisionMap(rows: WorkspaceRow[], scopes: string[]): WorkspaceRevisions {
+  return Object.fromEntries(scopes.map(scope => [scope, Number(rows.find(row => row.scope_key === scope)?.revision ?? 0)]));
+}
+async function checkedSave(auth: { admin: ReturnType<typeof getSupabaseAdminClient>; profile: Profile }, states: Record<string, unknown>[], expected: WorkspaceRevisions, mutationId: string) {
+  const { data, error } = await auth.admin.rpc("save_workspace_checked", { p_expected: expected, p_states: states, p_actor_id: auth.profile.id, p_mutation_id: mutationId });
+  if (error) return NextResponse.json({ error: persistenceError(error) }, { status: 503 });
+  if (data?.conflict) return NextResponse.json({ error: "다른 사용자가 먼저 변경사항을 저장했습니다. 내 변경사항을 보관한 후 최신 자료를 확인해 주세요.", code: "WORKSPACE_CONFLICT", ...data }, { status: 409 });
+  return NextResponse.json(data);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const auth = await authenticate(request);
     if ("error" in auth) return auth.error;
 
-    const { organizations, directory } = await getOrganizationDirectory();
     const isAdmin = isAdminRole(auth.profile.role);
+    if (request.nextUrl.searchParams.get("view") === "audit") {
+      // History is currently a group administrator function; raw snapshots may
+      // contain multiple sites and must not bypass organization/site scoping.
+      if (!isAdmin) return NextResponse.json({ error: "전체 변경 이력은 관리자만 조회할 수 있습니다." }, { status: 403 });
+      let query = auth.admin.from("workspace_change_log").select("*").order("id", { ascending: false }).limit(101);
+      const before = request.nextUrl.searchParams.get("before");
+      if (before && !/^\d+$/.test(before)) return NextResponse.json({ error: "잘못된 이력 페이지입니다." }, { status: 400 });
+      if (before) query = query.lt("id", before);
+      const { data, error } = await query;
+      if (error) return NextResponse.json({ error: persistenceError(error) }, { status: 503 });
+      const entries = (data ?? []).slice(0, 100);
+      return NextResponse.json({ entries, nextCursor: (data?.length ?? 0) > 100 ? String(entries.at(-1)?.id) : null });
+    }
+    const { organizations, directory } = await getOrganizationDirectory();
     if (!isAdmin && (!auth.profile.organization_id || !auth.profile.organization?.name)) {
       return NextResponse.json({ error: "자료 입력자와 조회자는 소속 법인이 지정되어야 합니다." }, { status: 403 });
     }
 
-    let query = auth.admin.from("workspace_states").select("scope_key,organization_id,payload");
+    let query = auth.admin.from("workspace_states").select("scope_key,organization_id,payload,revision");
     if (!isAdmin) {
       query = query.in("scope_key", ["global", `organization:${auth.profile.organization_id}`]);
     }
     const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: persistenceError(error) }, { status: 503 });
 
     const rows = (data ?? []) as WorkspaceRow[];
     const global = rows.find((row) => row.scope_key === "global")?.payload;
@@ -288,7 +320,7 @@ export async function GET(request: NextRequest) {
     if (isAdmin) payload.organizations = directory;
     else if (auth.profile.organization?.name) payload.organizations = { [auth.profile.organization.name]: auth.profile.site?.name ? [auth.profile.site.name] : (directory[auth.profile.organization.name] ?? []) };
 
-    return NextResponse.json({ profile: auth.profile, payload, organizationCount: isAdmin ? organizations.length : 1 });
+    return NextResponse.json({ profile: auth.profile, payload, revisions: revisionMap(rows, ["global", ...(isAdmin ? organizations.map(org => `organization:${org.id}`) : [`organization:${auth.profile.organization_id}`])]), organizationCount: isAdmin ? organizations.length : 1 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "운영 데이터를 불러오지 못했습니다.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -327,25 +359,12 @@ function mergeEditorRows(
   return result;
 }
 
-function mergeAdminRows(existingRows: unknown[], incomingRows: unknown[]) {
-  const incoming = new Map(incomingRows.map((value) => [String(asRow(value).id ?? rowKey(value, "records")), asRow(value)]));
-  const result: DataRow[] = [];
-  for (const value of existingRows) {
-    const current = asRow(value);
-    const key = String(current.id ?? rowKey(value, "records"));
-    const next = incoming.get(key);
-    incoming.delete(key);
-    result.push(next ? { ...current, ...next } : current);
-  }
-  return [...result, ...incoming.values()];
-}
-
 function changedRows(existingRows: unknown[], incomingRows: unknown[]) {
   const existing = new Map(existingRows.map(value => [String(asRow(value).id ?? rowKey(value, "records")), asRow(value)]));
   return incomingRows.filter(value => {
     const row = asRow(value);
     const current = existing.get(String(row.id ?? rowKey(value, "records")));
-    return !current || JSON.stringify(current) !== JSON.stringify(row);
+    return !current || stableWorkspaceJson(current) !== stableWorkspaceJson(row);
   });
 }
 
@@ -358,17 +377,18 @@ function validateActivityRows(rows: unknown[], periods: Map<string, DataRow>, or
     const row = asRow(value);
     if (row.company !== organizationName) return "소속 법인 자료만 저장할 수 있습니다.";
     if (invalidMonth(row.period)) return "귀속월은 YYYY-MM 형식이어야 합니다.";
-    if (!Number.isFinite(Number(row.usage)) || Number(row.usage) <= 0) return "사용량은 0보다 큰 숫자여야 합니다.";
+    const dataError = validateDataValue({ value: row.usage as number, dataStatus: row.dataStatus as DataStatus, description: String(row.description ?? "") });
+    if (dataError) return dataError;
+    if (!Number.isFinite(Number(row.usage)) || Number(row.usage) < 0) return "사용량은 0 이상 숫자여야 합니다.";
     if (!Number.isFinite(Number(row.factor)) || Number(row.factor) < 0) return "배출계수는 0 이상 숫자여야 합니다.";
     if (!Number.isFinite(Number(row.emissions)) || Number(row.emissions) < 0) return "배출량은 0 이상 숫자여야 합니다.";
-    const expected = Math.round(Number(row.usage) * Number(row.factor) / 1000 * 100) / 100;
-    if (Math.abs(expected - Number(row.emissions)) > 0.01) return "사용량·배출계수와 배출량이 일치하지 않습니다.";
+
     if (!(directory[organizationName] ?? []).includes(String(row.site ?? ""))) return "등록된 사업장만 선택할 수 있습니다.";
     if (assignedSite && row.site !== assignedSite) return "지정된 사업장 자료만 저장할 수 있습니다.";
     const period = periods.get(String(row.collectionId ?? ""));
     if (submissionExpired(period)) return "제출기한이 마감되었습니다. 관리자에게 기한 연장을 요청해 주세요.";
     if (!period || !canCollect(period) || !Array.isArray(period.companies) || !period.companies.includes(organizationName)) return "현재 수집중인 기간과 대상 법인만 입력할 수 있습니다.";
-    const requested = buildGHGCollectionTasks(period as never).some(task => task.company === organizationName && task.targetId === row.scope && task.period === row.period);
+    const requested = buildGHGCollectionTasks(period as never).some(task => collectionTaskMatchesRow(task, {company:organizationName,targetId:row.scope,period:row.period,site:row.site}, asRow(period.sitesByCompany)[organizationName]));
     if (!requested) return "수집 요청에 포함되지 않은 법인·Scope·귀속월입니다.";
   }
   return null;
@@ -379,6 +399,8 @@ function validateMetricRows(rows: unknown[], requests: Map<string, DataRow>, ind
     const row = asRow(value);
     if (row.company !== organizationName) return "소속 법인 자료만 저장할 수 있습니다.";
     if (invalidMonth(row.period)) return "귀속월은 YYYY-MM 형식이어야 합니다.";
+    const dataError = validateDataValue({ value: row.value as number, dataStatus: row.dataStatus as DataStatus, description: String(row.description ?? "") });
+    if (dataError) return dataError;
     if (!Number.isFinite(Number(row.value)) || Number(row.value) < 0) return "정량지표 값은 0 이상 숫자여야 합니다.";
     if (!(directory[organizationName] ?? []).includes(String(row.site ?? ""))) return "등록된 사업장만 선택할 수 있습니다.";
     if (assignedSite && row.site !== assignedSite) return "지정된 사업장 자료만 저장할 수 있습니다.";
@@ -387,7 +409,7 @@ function validateMetricRows(rows: unknown[], requests: Map<string, DataRow>, ind
     if (submissionExpired(request)) return "제출기한이 마감되었습니다. 관리자에게 기한 연장을 요청해 주세요.";
     if (!request || !canCollect(request) || !Array.isArray(request.companies) || !request.companies.includes(organizationName)) return "현재 수집중인 정량데이터 요청만 입력할 수 있습니다.";
     if (!indicator || !Array.isArray(request.indicatorIds) || !request.indicatorIds.map(String).includes(String(row.indicatorId ?? ""))) return "요청에 포함되지 않은 정량지표입니다.";
-    const requested = buildMetricCollectionTasks(request as never, [indicator as never]).some(task => task.company === organizationName && task.targetId === Number(row.indicatorId) && task.period === row.period);
+    const requested = buildMetricCollectionTasks(request as never, [indicator as never]).some(task => collectionTaskMatchesRow(task, {company:organizationName,targetId:Number(row.indicatorId),period:row.period,site:row.site}, asRow(request.sitesByCompany)[organizationName]));
     if (!requested) return "수집 요청에 포함되지 않은 법인·지표·귀속월입니다.";
   }
   return null;
@@ -421,8 +443,20 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "조회자는 운영 데이터를 변경할 수 없습니다." }, { status: 403 });
     }
 
-    const body = await request.json() as { payload?: unknown };
+    const body = await request.json() as { payload?: unknown; revisions?: WorkspaceRevisions; mutationId?: string };
+    if (!body.payload || typeof body.payload !== "object" || !body.revisions || typeof body.revisions !== "object" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.mutationId ?? "")) return NextResponse.json({ error: "저장 버전 정보가 없습니다. 최신 자료를 다시 불러와 주세요." }, { status: 428 });
+    const expected = body.revisions;
+    const mutationId = body.mutationId!;
+    // An acknowledged DB commit may have lost its HTTP response. Return the
+    // original receipt before comparing revisions on an idempotent retry.
+    const { data: receipt, error: receiptError } = await auth.admin.from("workspace_save_receipts").select("result").eq("actor_id", auth.profile.id).eq("mutation_id", mutationId).maybeSingle();
+    if (receiptError) return NextResponse.json({ error: persistenceError(receiptError) }, { status: 503 });
+    if (receipt) return NextResponse.json(receipt.result);
     const payload = normalizeWorkspace(body.payload);
+    for (const rows of [payload.records, payload.metricSubmissions]) {
+      const ids = rows.map(value => String(asRow(value).id ?? ""));
+      if (ids.some(id => !id) || new Set(ids).size !== ids.length) return NextResponse.json({ error: "자료 식별자가 없거나 중복되었습니다. 가져오기 데이터를 확인해 주세요." }, { status: 400 });
+    }
     const now = new Date().toISOString();
     const isAdmin = isAdminRole(auth.profile.role);
 
@@ -436,9 +470,12 @@ export async function PATCH(request: NextRequest) {
       const scopeKey = `organization:${organizationId}`;
       const { data: stateRows, error: stateError } = await auth.admin
         .from("workspace_states")
-        .select("scope_key,payload")
+        .select("scope_key,organization_id,payload,revision")
         .in("scope_key", ["global", scopeKey]);
-      if (stateError) return NextResponse.json({ error: stateError.message }, { status: 500 });
+      if (stateError) return NextResponse.json({ error: persistenceError(stateError) }, { status: 503 });
+      const scopes = ["global", scopeKey];
+      const conflicts = revisionConflicts(expected, revisionMap((stateRows ?? []) as WorkspaceRow[], scopes), scopes);
+      if (conflicts.length) return NextResponse.json({ error: "다른 사용자의 변경사항이 있습니다. 최신 자료를 확인해 주세요.", code: "WORKSPACE_CONFLICT", scopes: conflicts }, { status: 409 });
 
       const global = normalizeWorkspace(stateRows?.find((row) => row.scope_key === "global")?.payload);
       const existing = normalizeWorkspace(stateRows?.find((row) => row.scope_key === scopeKey)?.payload);
@@ -463,8 +500,27 @@ export async function PATCH(request: NextRequest) {
           && requestRow.indicatorIds.map(String).includes(String(row.indicatorId ?? ""));
       };
 
+      for (const [beforeRows, nextRows] of [[existing.records, payload.records], [existing.metricSubmissions, payload.metricSubmissions]]) {
+        const before = new Map(beforeRows.map(value => [String(asRow(value).id), asRow(value)]));
+        for (const value of changedRows(beforeRows, nextRows)) {
+          const row = asRow(value);
+          if (row.company !== organizationName || (auth.profile.site?.name && row.site !== auth.profile.site.name)) return NextResponse.json({ error: "지정된 법인·사업장 자료만 변경할 수 있습니다." }, { status: 403 });
+          const transitionError = validateWorkspaceTransition(before.get(String(row.id)), row, false);
+          if (transitionError) return NextResponse.json({ error: transitionError }, { status: 400 });
+        }
+      }
+      for (const value of changedRows(existing.records, payload.records)) {
+        const row = asRow(value);
+        const calculationError = validateEmissionIntegrity(row, existing.records.map(asRow).find(current => current.id === row.id), global.factors);
+        if (calculationError) return NextResponse.json({ error: calculationError }, { status: 400 });
+      }
       const activityValidation = validateActivityRows(changedRows(existing.records, payload.records.filter((value) => asRow(value).company === organizationName)), periods, organizationName, directory, auth.profile.site?.name);
       if (activityValidation) return NextResponse.json({ error: activityValidation }, { status: 400 });
+      for (const value of changedRows(existing.metricSubmissions, payload.metricSubmissions)) {
+        const row = asRow(value);
+        const ratioError = validateMetricRatio(row, existing.metricSubmissions.map(asRow).find(current => current.id === row.id), indicators.get(String(row.indicatorId)) ?? {});
+        if (ratioError) return NextResponse.json({ error: ratioError }, { status: 400 });
+      }
       const metricValidation = validateMetricRows(changedRows(existing.metricSubmissions, payload.metricSubmissions.filter((value) => asRow(value).company === organizationName)), requests, indicators, organizationName, directory, auth.profile.site?.name);
       if (metricValidation) return NextResponse.json({ error: metricValidation }, { status: 400 });
 
@@ -516,21 +572,42 @@ export async function PATCH(request: NextRequest) {
         organizations: {},
       };
 
-      const { error } = await auth.admin.from("workspace_states").upsert({
-        scope_key: scopeKey,
-        organization_id: organizationId,
-        payload: organizationPayload,
-        updated_by: auth.profile.id,
-        updated_at: now,
-      }, { onConflict: "scope_key" });
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ savedAt: now });
+      return checkedSave(auth, [{ scope_key: scopeKey, organization_id: organizationId, payload: organizationPayload }], Object.fromEntries(scopes.map(scope => [scope, expected[scope]])), mutationId);
     }
 
-    const { organizations } = await getOrganizationDirectory();
-    const { data: existingStates } = await auth.admin.from("workspace_states").select("scope_key,payload").in("scope_key", ["global", ...organizations.map(organization => `organization:${organization.id}`)]);
+    const { organizations, directory } = await getOrganizationDirectory();
+    const { data: existingStates, error: existingError } = await auth.admin.from("workspace_states").select("scope_key,organization_id,payload,revision").in("scope_key", ["global", ...organizations.map(organization => `organization:${organization.id}`)]);
+    if (existingError) return NextResponse.json({ error: persistenceError(existingError) }, { status: 503 });
+    const scopes = ["global", ...organizations.map(org => `organization:${org.id}`)];
+    const conflicts = revisionConflicts(expected, revisionMap((existingStates ?? []) as WorkspaceRow[], scopes), scopes);
+    if (conflicts.length) return NextResponse.json({ error: "다른 사용자의 변경사항이 있습니다. 최신 자료를 확인해 주세요.", code: "WORKSPACE_CONFLICT", scopes: conflicts }, { status: 409 });
     const existingByScope = new Map((existingStates ?? []).map(row => [String(row.scope_key), normalizeWorkspace(row.payload)]));
-    // Review/approval remains allowed after closure; new submissions do not.
+    const previousGlobal = existingByScope.get("global") ?? EMPTY_WORKSPACE;
+    const finalByScope = new Map(organizations.map(organization => {
+      const scopeKey = `organization:${organization.id}`;
+      return [scopeKey, {
+        records: mergeAdminRows(existingByScope.get(scopeKey)?.records ?? [], filterCompanyRows(payload.records, organization.name, "company")),
+        metricSubmissions: mergeAdminRows(existingByScope.get(scopeKey)?.metricSubmissions ?? [], filterCompanyRows(payload.metricSubmissions, organization.name, "company")),
+      }] as const;
+    }));
+    const finalRecords = [...finalByScope.values()].flatMap(state => state.records);
+    const finalMetricSubmissions = [...finalByScope.values()].flatMap(state => state.metricSubmissions);
+    for (const [kind, windows, previousWindows, rows] of [
+      ["ghg", payload.periods, previousGlobal.periods, finalRecords],
+      ["metric", payload.metricRequests, previousGlobal.metricRequests, finalMetricSubmissions],
+    ] as const) {
+      for (const value of windows) {
+        const window = asRow(value);
+        const previousWindow = previousWindows.map(asRow).find(item => item.id === window.id);
+        const closedRequestError = validateClosedRequestChange(previousWindow, window);
+        if (closedRequestError) return NextResponse.json({ error: closedRequestError }, { status: 400 });
+        if (["마감", "잠금"].includes(String(window.status)) && previousWindow?.status !== window.status) {
+          const issues = getWorkspaceClosingIssues({ kind, request: window as ClosingRequest, rows: rows as ClosingRow[], indicators: payload.indicators as ClosingIndicator[], organizations: directory });
+          if (issues.length) return NextResponse.json({ error: `마감 전에 ${issues.length}개 항목을 확인해 주세요. ${issues[0].message}`, code: "CLOSING_BLOCKED", issues }, { status: 400 });
+        }
+      }
+    }
+    // Review/approval remains allowed during review; new submissions do not.
     for (const [rows, key, windows] of [
       [payload.records, "collectionId", payload.periods],
       [payload.metricSubmissions, "requestId", payload.metricRequests],
@@ -540,9 +617,29 @@ export async function PATCH(request: NextRequest) {
           const row = asRow(value); return [String(row.id), row] as const;
         })));
       const requests = new Map(windows.map(value => { const row = asRow(value); return [String(row.id), row] as const; }));
+      const previousWindows = new Map((key === "collectionId" ? previousGlobal.periods : previousGlobal.metricRequests).map(value => { const row = asRow(value); return [String(row.id), row] as const; }));
       for (const value of rows) {
         const row = asRow(value);
-        if (row.status === "검토대기" && JSON.stringify(previous.get(String(row.id))) !== JSON.stringify(row)
+        const current = previous.get(String(row.id));
+        if ((!current || stableWorkspaceJson(current) !== stableWorkspaceJson(row)) && ["마감", "잠금"].includes(String(previousWindows.get(String(current?.[key] ?? row[key]))?.status))) return NextResponse.json({ error: "마감·잠긴 수집기간의 자료는 변경할 수 없습니다. 먼저 기간을 다시 열고 서버 저장이 완료된 후 수정해 주세요." }, { status: 400 });
+        const transitionError = validateWorkspaceTransition(current, row, true);
+        if (transitionError) return NextResponse.json({ error: transitionError }, { status: 400 });
+        if (key === "collectionId") {
+          const calculationError = validateEmissionIntegrity(row, current, payload.factors);
+          if (calculationError) return NextResponse.json({ error: calculationError }, { status: 400 });
+        }
+        if (key === "requestId") {
+          const ratioError = validateMetricRatio(row, current, payload.indicators.map(asRow).find(indicator => indicator.id === row.indicatorId) ?? {});
+          if (ratioError) return NextResponse.json({ error: ratioError }, { status: 400 });
+        }
+        const contentChanged = !current || ["usage", "unit", "factorId", "factor", "emissions", "period", "collectionId", "requestId", "indicatorId", "value", "detailRows", "dataStatus", "numerator", "denominator", "active"].some(field => stableWorkspaceJson(current[field]) !== stableWorkspaceJson(row[field]));
+        if (contentChanged) {
+          const validation = key === "collectionId"
+            ? validateActivityRows([row], requests, String(row.company), directory)
+            : validateMetricRows([row], requests, new Map(payload.indicators.map(item => [String(asRow(item).id), asRow(item)])), String(row.company), directory);
+          if (validation) return NextResponse.json({ error: validation }, { status: 400 });
+        }
+        if (row.status === "검토대기" && current?.status !== "검토대기"
           && !canCollect(requests.get(String(row[key])))) {
           return NextResponse.json({ error: "제출이 마감되었습니다. 제출기한을 연장하고 수집중으로 변경해 주세요." }, { status: 400 });
         }
@@ -570,8 +667,8 @@ export async function PATCH(request: NextRequest) {
       const name = organization.name;
       const organizationPayload: WorkspacePayload = {
         ...EMPTY_WORKSPACE,
-        records: mergeAdminRows(existingByScope.get(`organization:${organization.id}`)?.records ?? [], filterCompanyRows(payload.records, name, "company")),
-        metricSubmissions: mergeAdminRows(existingByScope.get(`organization:${organization.id}`)?.metricSubmissions ?? [], filterCompanyRows(payload.metricSubmissions, name, "company")),
+        records: finalByScope.get(`organization:${organization.id}`)!.records,
+        metricSubmissions: finalByScope.get(`organization:${organization.id}`)!.metricSubmissions,
         evidence: mergeAdminRows(existingByScope.get(`organization:${organization.id}`)?.evidence ?? [], filterCompanyRows(payload.evidence, name, "organization")),
         targets: filterCompanyRows(payload.targets, name, "company"),
         plans: filterCompanyRows(payload.plans, name, "company"),
@@ -587,9 +684,7 @@ export async function PATCH(request: NextRequest) {
       });
     }
 
-    const { error } = await auth.admin.from("workspace_states").upsert(upserts, { onConflict: "scope_key" });
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ savedAt: now });
+    return checkedSave(auth, upserts, Object.fromEntries(scopes.map(scope => [scope, expected[scope]])), mutationId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "운영 데이터를 저장하지 못했습니다.";
     return NextResponse.json({ error: message }, { status: 500 });

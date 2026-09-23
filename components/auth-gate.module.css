@@ -218,3 +218,12 @@
   .card { padding: 30px 24px; border-radius: 20px; }
   .session { left: 12px; right: 12px; bottom: 12px; justify-content: space-between; }
 }
+
+.conflictOverlay { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 24px; background: rgba(15, 31, 24, .55); }
+.syncNotice { position: fixed; bottom: 18px; right: 18px; width: min(520px, calc(100% - 36px)); z-index: 3000; }
+.syncCard { width: min(540px, 100%); padding: 24px; border: 1px solid #f0c98f; border-radius: 16px; background: #fffdf8; box-shadow: 0 14px 45px rgba(0,0,0,.17); color: #29392f; }
+.syncCard strong { font-size: 18px; }
+.syncCard p { margin: 12px 0; font-size: 14px; line-height: 1.65; }
+.syncActions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.syncActions button { padding: 10px 14px; border: 1px solid #b9c8bf; border-radius: 8px; background: #fff; color: #215840; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.syncActions button:last-child { background: #17614b; color: #fff; border-color: #17614b; }

@@ -83,3 +83,25 @@ test("stored task keys preserve a request's exact non-duplicate scope", () => {
 
   assert.deepEqual(tasks.map(task => task.period), ["2026-07", "2026-08"]);
 });
+
+test("site-specific requests keep both sites in their completion denominator", () => {
+  const tasks = buildMetricCollectionTasks({
+    periodFrom: "2026-01", periodTo: "2026-01", companies: ["세원정공", "신규법인"],
+    sitesByCompany: { 세원정공: ["본사", "공장"] }, indicatorIds: [1],
+  }, [{ id: 1, cycle: "월" }]);
+  assert.equal(tasks.length, 3);
+  assert.equal(tasks.filter(task => task.company === "세원정공").length, 2);
+  assert.equal(tasks.find(task => task.company === "신규법인")?.site, undefined);
+  assert.notEqual(tasks[0].key, tasks[1].key);
+  const legacyKey = collectionTaskKey("세원정공", 1, "2026-01");
+  assert.equal(legacyKey.split("::").length, 3);
+  assert.equal(classifyCollectionTasks(tasks, new Set([legacyKey]), new Set()).existing.length, 2);
+});
+
+test("a company-wide candidate cannot duplicate an existing site-specific request", () => {
+  const candidates = buildGHGCollectionTasks({ dataFrom: "2026-01", dataTo: "2026-01", companies: ["A"], scopes: ["Scope 2"] });
+  const classified = classifyCollectionTasks(candidates, new Set([collectionTaskKey("A", "Scope 2", "2026-01", "공장")]), new Set());
+  assert.equal(classified.available.length, 0);
+  assert.equal(classified.existing.length, 1);
+  assert.equal(classified.confirmed.length, 0);
+});
