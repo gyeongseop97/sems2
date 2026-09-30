@@ -5,4 +5,3 @@ const files = readdirSync("tests").filter(name => name.endsWith(".test.ts")).sor
 const result = spawnSync(process.execPath, ["--import", "tsx", "--test", ...files], { stdio: "inherit" });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);
-

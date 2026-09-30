@@ -6,4 +6,3 @@ const result = spawnSync(process.execPath, ["node_modules/next/dist/bin/next", "
 });
 if (result.error) throw result.error;
 process.exit(result.status ?? 1);
-
