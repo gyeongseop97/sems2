@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
         trailingSlash: true,
         images: { unoptimized: true },
       }
-    : {}),
+    : process.env.SEMS_STANDALONE === "true" ? { output: "standalone" } : {}),
 };
 
 export default nextConfig;

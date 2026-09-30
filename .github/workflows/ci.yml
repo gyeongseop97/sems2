@@ -18,3 +18,22 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: npm run build
+      - run: npm run test:server
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --build-arg NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-placeholder -t sems2-ci .
+      - run: |
+          docker run -d --name sems2-ci -p 127.0.0.1:3000:3000 sems2-ci
+          trap "docker logs sems2-ci; docker rm -f sems2-ci" EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/api/live; then break; fi
+            sleep 2
+          done
+          curl --fail http://127.0.0.1:3000/api/live
+          curl --fail http://127.0.0.1:3000/
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/workspace)" = 401

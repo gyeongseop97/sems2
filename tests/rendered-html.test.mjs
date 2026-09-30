@@ -181,7 +181,7 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(accessControl, /\["admin", "editor", "viewer"\]/);
   assert.doesNotMatch(userManagement, /기획실 관리자/);
   assert.match(workspaceRoute, /scopeWorkspaceForOrganization/);
-  assert.match(workspaceRoute, /query = query\.in\("scope_key"/);
+  assert.match(workspaceRoute, /isAdmin \? undefined : \["global", `organization:\$\{auth\.profile\.organization_id\}`\]/);
   assert.match(workspaceRoute, /row\.status === "검토대기" \|\| row\.status === "확정"/);
   assert.match(workspaceRoute, /조회자는 운영 데이터를 변경할 수 없습니다/);
   assert.match(page, /DEFAULT_CALCULATION_FORMULAS/);
