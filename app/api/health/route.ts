@@ -28,6 +28,7 @@ export async function GET() {
         Authorization: `Bearer ${supabaseAnonKey}`,
       },
       cache: "no-store",
+      signal: AbortSignal.timeout(5000),
     });
 
     return NextResponse.json(

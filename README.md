@@ -25,20 +25,21 @@ Supabase 환경값은 배포 환경 또는 `.env.local`에 설정합니다. 공�
 
 ## 개발과 검사
 
-Node.js 22.13 이상이 필요합니다.
+Node.js 22를 기준으로 개발·운영합니다. `.env.example`을 `.env.local`로 복사하고 별도 개발용 Supabase를 설정하세요.
 
 ```bash
 npm ci
-# Vercel/Next.js 개발
-npx next dev
-# Vercel 배포 빌드
-npm run build:vercel
-# 기존 Vinext/Sites CI 빌드와 회귀 검사 (Bash 필요)
+npm run dev
+npm run test:unit
 npm run lint
-npm test
+npm run build
+npm run test:server
+npm start
 ```
 
-기존 `npm run dev`는 Vite/Vinext 개발 서버를 실행합니다. Supabase 설정이 없으면 로그인 설정 안내가 표시됩니다. 실제 데이터 검증에는 별도의 개발용 Supabase 프로젝트와 사용자 계정을 사용하세요.
+Vercel과 일반 Node 서버는 같은 Next.js 빌드를 사용합니다. Dockerfile과 compose.yaml도 제공합니다. 기존 Sites/Vinext 경로는 `dev:sites`, `build:sites`, `start:sites`로 유지하며 `npm test`의 전체 회귀 검사에는 Bash가 필요합니다.
+
+개발자 코드 안내, 환경변수, Docker 실행, 서버 이전·복구 절차와 남은 개선 범위는 [개발자 인수인계·서버 이전 안내](docs/maintenance-and-hosting.md)를 확인하세요.
 
 ## 주요 구성
 

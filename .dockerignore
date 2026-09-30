@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.env*
+.vercel
+dist
+out
+work
+outputs
+.sites-runtime
+.wrangler
+coverage
+*.log
+*.tsbuildinfo
+

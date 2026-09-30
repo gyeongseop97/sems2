@@ -12,6 +12,8 @@ import { DEFAULT_EMISSION_FACTORS, withDefaultEmissionFactors } from "@/lib/emis
 import { buildGHGCollectionTasks, buildMetricCollectionTasks } from "@/lib/collection-task-expansion";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
+import { createWorkspaceStore } from "@/lib/server/workspace-store";
+
 export const dynamic = "force-dynamic";
 
 type WorkspacePayload = {
@@ -242,23 +244,7 @@ async function authenticate(request: NextRequest) {
 }
 
 async function getOrganizationDirectory() {
-  const admin = getSupabaseAdminClient();
-  const [{ data: organizations, error: organizationError }, { data: sites, error: siteError }] = await Promise.all([
-    admin.from("organizations").select("id,name,active").eq("active", true).order("name"),
-    admin.from("sites").select("id,name,organization_id,active").eq("active", true).order("name"),
-  ]);
-
-  if (organizationError || siteError) {
-    throw new Error(organizationError?.message ?? siteError?.message ?? "조직 정보를 불러오지 못했습니다.");
-  }
-
-  const directory: Record<string, string[]> = {};
-  for (const organization of organizations ?? []) {
-    directory[organization.name] = (sites ?? [])
-      .filter((site) => site.organization_id === organization.id)
-      .map((site) => site.name);
-  }
-  return { organizations: organizations ?? [], directory };
+  return createWorkspaceStore(getSupabaseAdminClient()).readOrganizationDirectory();
 }
 
 const MIGRATION_ERROR = "안전한 저장을 위한 데이터베이스 업데이트가 필요합니다. 관리자에게 20260923_workspace_integrity.sql 적용을 요청해 주세요. 현재 변경사항은 서버에 저장되지 않았습니다.";
@@ -269,7 +255,7 @@ function revisionMap(rows: WorkspaceRow[], scopes: string[]): WorkspaceRevisions
   return Object.fromEntries(scopes.map(scope => [scope, Number(rows.find(row => row.scope_key === scope)?.revision ?? 0)]));
 }
 async function checkedSave(auth: { admin: ReturnType<typeof getSupabaseAdminClient>; profile: Profile }, states: Record<string, unknown>[], expected: WorkspaceRevisions, mutationId: string) {
-  const { data, error } = await auth.admin.rpc("save_workspace_checked", { p_expected: expected, p_states: states, p_actor_id: auth.profile.id, p_mutation_id: mutationId });
+  const { data, error } = await createWorkspaceStore(auth.admin).saveChecked(states, expected, auth.profile.id, mutationId);
   if (error) return NextResponse.json({ error: persistenceError(error) }, { status: 503 });
   if (data?.conflict) return NextResponse.json({ error: "다른 사용자가 먼저 변경사항을 저장했습니다. 내 변경사항을 보관한 후 최신 자료를 확인해 주세요.", code: "WORKSPACE_CONFLICT", ...data }, { status: 409 });
   return NextResponse.json(data);
@@ -285,11 +271,9 @@ export async function GET(request: NextRequest) {
       // History is currently a group administrator function; raw snapshots may
       // contain multiple sites and must not bypass organization/site scoping.
       if (!isAdmin) return NextResponse.json({ error: "전체 변경 이력은 관리자만 조회할 수 있습니다." }, { status: 403 });
-      let query = auth.admin.from("workspace_change_log").select("*").order("id", { ascending: false }).limit(101);
       const before = request.nextUrl.searchParams.get("before");
       if (before && !/^\d+$/.test(before)) return NextResponse.json({ error: "잘못된 이력 페이지입니다." }, { status: 400 });
-      if (before) query = query.lt("id", before);
-      const { data, error } = await query;
+      const { data, error } = await createWorkspaceStore(auth.admin).readHistory(before);
       if (error) return NextResponse.json({ error: persistenceError(error) }, { status: 503 });
       const entries = (data ?? []).slice(0, 100);
       return NextResponse.json({ entries, nextCursor: (data?.length ?? 0) > 100 ? String(entries.at(-1)?.id) : null });
@@ -299,11 +283,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "자료 입력자와 조회자는 소속 법인이 지정되어야 합니다." }, { status: 403 });
     }
 
-    let query = auth.admin.from("workspace_states").select("scope_key,organization_id,payload,revision");
-    if (!isAdmin) {
-      query = query.in("scope_key", ["global", `organization:${auth.profile.organization_id}`]);
-    }
-    const { data, error } = await query;
+    const { data, error } = await createWorkspaceStore(auth.admin).readStates(
+      isAdmin ? undefined : ["global", `organization:${auth.profile.organization_id}`],
+    );
     if (error) return NextResponse.json({ error: persistenceError(error) }, { status: 503 });
 
     const rows = (data ?? []) as WorkspaceRow[];
@@ -449,7 +431,7 @@ export async function PATCH(request: NextRequest) {
     const mutationId = body.mutationId!;
     // An acknowledged DB commit may have lost its HTTP response. Return the
     // original receipt before comparing revisions on an idempotent retry.
-    const { data: receipt, error: receiptError } = await auth.admin.from("workspace_save_receipts").select("result").eq("actor_id", auth.profile.id).eq("mutation_id", mutationId).maybeSingle();
+    const { data: receipt, error: receiptError } = await createWorkspaceStore(auth.admin).readReceipt(auth.profile.id, mutationId);
     if (receiptError) return NextResponse.json({ error: persistenceError(receiptError) }, { status: 503 });
     if (receipt) return NextResponse.json(receipt.result);
     const payload = normalizeWorkspace(body.payload);
@@ -468,10 +450,7 @@ export async function PATCH(request: NextRequest) {
       const organizationId = auth.profile.organization_id;
       const organizationName = auth.profile.organization.name;
       const scopeKey = `organization:${organizationId}`;
-      const { data: stateRows, error: stateError } = await auth.admin
-        .from("workspace_states")
-        .select("scope_key,organization_id,payload,revision")
-        .in("scope_key", ["global", scopeKey]);
+      const { data: stateRows, error: stateError } = await createWorkspaceStore(auth.admin).readStates(["global", scopeKey]);
       if (stateError) return NextResponse.json({ error: persistenceError(stateError) }, { status: 503 });
       const scopes = ["global", scopeKey];
       const conflicts = revisionConflicts(expected, revisionMap((stateRows ?? []) as WorkspaceRow[], scopes), scopes);
@@ -576,7 +555,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     const { organizations, directory } = await getOrganizationDirectory();
-    const { data: existingStates, error: existingError } = await auth.admin.from("workspace_states").select("scope_key,organization_id,payload,revision").in("scope_key", ["global", ...organizations.map(organization => `organization:${organization.id}`)]);
+    const { data: existingStates, error: existingError } = await createWorkspaceStore(auth.admin).readStates(["global", ...organizations.map(organization => `organization:${organization.id}`)]);
     if (existingError) return NextResponse.json({ error: persistenceError(existingError) }, { status: 503 });
     const scopes = ["global", ...organizations.map(org => `organization:${org.id}`)];
     const conflicts = revisionConflicts(expected, revisionMap((existingStates ?? []) as WorkspaceRow[], scopes), scopes);
