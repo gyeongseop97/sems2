@@ -160,12 +160,12 @@ test("preserves the latest operating workflow and readable type scale", async ()
   assert.match(page, /REPORT_TABLE_SIZE=8/);
   assert.match(page, /REPORT_CAPTION_SIZE=7/);
   assert.match(page, /가로형 · 현대차 보고서형 16:9/);
-  assert.match(page, /기준정보·규제 관리/);
+  assert.match(page, /기준정보 관리/);
   assert.match(page, /Scope 3 범주별 입력항목/);
   assert.match(page, /15개 범주 기본필드 생성/);
   assert.match(page, /보고기준·공시항목/);
   assert.match(page, /standardCodes=\[\.\.\.new Set/);
-  assert.match(page, /규제·준수 관리/);
+  assert.doesNotMatch(page, /규제·준수 관리/);
   assert.match(page, /Scope 3·공급망 관리/);
   assert.match(page, /공급사 마스터/);
   assert.match(page, /자재·제품 마스터/);
