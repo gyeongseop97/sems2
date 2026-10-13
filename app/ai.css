@@ -1,0 +1,48 @@
+.sems-ai { min-width: 0; color: var(--ink, #26332c); font: inherit; }
+.sems-ai-workspace { display: grid; gap: 18px; }
+.sems-ai-body { padding: 0 24px 24px; }
+.sems-ai label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.sems-ai input:not([type="checkbox"]), .sems-ai select, .sems-ai textarea { box-sizing: border-box; max-width: 100%; width: 100%; min-height: 42px; border: 1px solid #d4ddd7; border-radius: 7px; padding: 10px 12px; color: inherit; background: #fff; font: inherit; font-size: 13px; }
+.sems-ai textarea { display: block; resize: vertical; line-height: 1.65; min-height: 80px; }
+.sems-ai input:focus-visible, .sems-ai select:focus-visible, .sems-ai textarea:focus-visible, .sems-ai button:focus-visible, .sems-ai summary:focus-visible { outline: 2px solid #267551; outline-offset: 3px; }
+.sems-ai input:disabled, .sems-ai select:disabled { background: #f3f5f4; color: #68766e; }
+.sems-ai button:disabled { cursor: not-allowed; opacity: .55; }
+.sems-ai-scope { display: grid; grid-template-columns: minmax(0, 2fr) minmax(110px, 1fr); gap: 14px; max-width: 700px; margin-bottom: 16px; }
+.sems-ai-scope label { margin: 0; }
+.sems-ai-scope input, .sems-ai-scope select { margin-top: 6px; }
+.sems-ai-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.sems-ai-help { margin: 7px 0; font-size: 12px; font-weight: 400; color: #6b7870; overflow-wrap: anywhere; }
+.sems-ai-answer { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; font-size: 14px; }
+.sems-ai-notice { padding: 12px 14px; border: 1px solid #dfE8e1; border-radius: 7px; margin: 14px 0; background: #f6f9f7; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.sems-ai-notice ul, .sems-ai-note-list { margin: 7px 0 0; padding-left: 20px; }
+.sems-ai-error { color: #a1382e; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.sems-ai-notice.sems-ai-error { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-color: #ebd2cc; background: #fff8f6; }
+.sems-ai-sources { border-top: 1px solid #e2e9e4; margin-top: 18px; padding-top: 14px; }
+.sems-ai-sources > summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.sems-ai-sources ol { padding-left: 22px; margin: 12px 0 0; }
+.sems-ai-sources li { padding: 0 0 12px 2px; font-size: 13px; }
+.sems-ai-source-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.sems-ai-source-excerpt { margin: 8px 0; padding: 10px 12px; border-left: 3px solid #d6e3d9; background: #f7f9f8; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.7; }
+.sems-ai-panel { border: 1px solid #d7e3db; border-radius: 8px; background: #fbfdfb; margin: 14px 0; }
+.sems-ai-panel > summary { padding: 12px 14px; cursor: pointer; font-size: 13px; font-weight: 700; }
+.sems-ai-panel > summary .sems-ai-help { margin: 0 0 0 12px; display: inline; }
+.sems-ai-panel-body { padding: 0 14px 16px; }
+.sems-ai-panel-body > .sems-ai-help:first-child { margin-top: 0; }
+.sems-ai-result { border-top: 1px solid #e0e8e2; margin-top: 14px; padding-top: 14px; }
+.sems-ai-result h3 { margin: 0 0 12px; font-size: 14px; }
+.sems-ai-result label textarea { margin-top: 7px; font-weight: 400; }
+.sems-ai-extraction-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0 0 12px; }
+.sems-ai-extraction-fields > div { border-bottom: 1px solid #e5eae6; padding-bottom: 8px; min-width: 0; }
+.sems-ai-extraction-fields dt { font-size: 12px; color: #758078; }
+.sems-ai-extraction-fields dd { margin: 3px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.sems-ai label.sems-ai-confirm { display: flex; align-items: flex-start; gap: 9px; font-weight: 400; margin: 14px 0; line-height: 1.6; }
+.sems-ai-confirm input { flex: 0 0 auto; width: 17px; height: 17px; margin: 3px 0 0; accent-color: #267551; }
+.sems-ai-note-list { font-size: 12px; line-height: 1.7; color: #6b7870; }
+@media (max-width: 640px) {
+  .sems-ai-body { padding: 0 16px 18px; }
+  .sems-ai-scope { grid-template-columns: 1fr; }
+  .sems-ai-extraction-fields { grid-template-columns: 1fr; }
+  .sems-ai-actions > button { max-width: 100%; white-space: normal; }
+  .sems-ai-panel > summary .sems-ai-help { display: block; margin: 4px 0 0 18px; }
+  .sems-ai-source-head { align-items: flex-start; }
+}
