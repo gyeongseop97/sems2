@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { useSemsAuth } from "@/components/auth-context";
-import { getAiConfiguration, requestAiDraft, requestAiExtraction } from "@/lib/ai-client";
+import { getAiConfiguration, requestAiDraft, requestAiExtraction, getAiAnswerHistory, deleteAiAnswerHistory, type AiAnswerHistoryEntry } from "@/lib/ai-client";
 import { isAdminRole } from "@/lib/access-control";
 import { resolveExtractedValue } from "@/lib/ai/extraction";
 import type { AiDraftRequest, AiExtraction, AiExtractionContext, AiResult, AiSource } from "@/lib/ai/types";
@@ -150,32 +150,39 @@ function answerExport(result: AiResult, text: string) {
   return sections.join("\n\n");
 }
 
-type AnswerHistoryEntry = { id: string; createdAt: string; question: string; result: AiResult };
-const subscribeHistory = (callback: () => void) => {
-  window.addEventListener("storage", callback);
-  window.addEventListener("sems-ai-history", callback);
-  return () => { window.removeEventListener("storage", callback); window.removeEventListener("sems-ai-history", callback); };
-};
-const emptyHistory = () => "[]";
-
 export function AiAnswerWorkspace({ organizationNames, currentOrganization, isAdmin, onNavigate }: { organizationNames: string[]; currentOrganization: string; isAdmin: boolean; onNavigate?: Navigate }) {
   const { profile } = useSemsAuth();
   const allowedCompanies = isAdmin ? ["", ...organizationNames] : [currentOrganization];
   const defaultCompany = isAdmin ? "" : currentOrganization;
-  const historyKey = `sems-ai-answer-history:v1:${JSON.stringify([profile.id, isAdmin, currentOrganization, [...organizationNames].sort()])}`;
-  const historyJson = useSyncExternalStore(subscribeHistory, () => {
-    try { return localStorage.getItem(historyKey) || "[]"; } catch { return "[]"; }
-  }, emptyHistory);
-  const history = useMemo<AnswerHistoryEntry[]>(() => {
-    try { const value = JSON.parse(historyJson); return Array.isArray(value) ? value.filter(item => item && typeof item.id === "string" && typeof item.question === "string" && item.result?.mode === "answer" && typeof item.result.text === "string" && Array.isArray(item.result.sources) && Array.isArray(item.result.gaps) && Array.isArray(item.result.warnings) && (isAdmin ? !item.result.scope?.company || organizationNames.includes(item.result.scope.company) : item.result.scope?.company === currentOrganization)).slice(0, 30) : []; } catch { return []; }
-  }, [historyJson, isAdmin, organizationNames, currentOrganization]);
+  const historyKey = JSON.stringify([profile.id, isAdmin, currentOrganization, [...organizationNames].sort()]);
+  const [historyState, setHistoryState] = useState<{ key: string; entries: AiAnswerHistoryEntry[]; error: string }>({ key: "", entries: [], error: "" });
+  const history = historyState.key === historyKey ? historyState.entries : [];
+  const historyError = historyState.key === historyKey ? historyState.error : "";
   const [historySelection, setHistorySelection] = useState<{ key: string; id: string } | null>(null);
-  const [historyError, setHistoryError] = useState("");
-  const saveHistory = (items: AnswerHistoryEntry[]) => {
-    try { localStorage.setItem(historyKey, JSON.stringify(items)); window.dispatchEvent(new Event("sems-ai-history")); setHistoryError(""); }
-    catch { setHistoryError("이 브라우저에 답변 기록을 저장하지 못했습니다. 텍스트 다운로드로 보관해 주세요."); }
+  const [historyRetry, setHistoryRetry] = useState(0);
+  const historyVersion = useRef(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    const version = ++historyVersion.current;
+    getAiAnswerHistory(controller.signal).then(entries => {
+      if (!controller.signal.aborted && version === historyVersion.current) setHistoryState({ key: historyKey, entries, error: "" });
+    }).catch(error => {
+      if (!controller.signal.aborted && version === historyVersion.current) setHistoryState({ key: historyKey, entries: [], error: messageOf(error) });
+    });
+    return () => { controller.abort(); };
+  }, [historyKey, historyRetry]);
+  const refreshHistory = () => setHistoryRetry(value => value + 1);
+  const clearHistory = async () => {
+    if (!window.confirm("서버에 저장된 본인 답변 기록 전체를 삭제하시겠습니까?")) return;
+    const version = ++historyVersion.current;
+    try {
+      await deleteAiAnswerHistory();
+      if (version !== historyVersion.current) return;
+      setHistoryState({ key: historyKey, entries: [], error: "" }); setHistorySelection(null); job.reset();
+    } catch (error) {
+      if (version === historyVersion.current) setHistoryState(previous => ({ ...previous, key: historyKey, error: messageOf(error) }));
+    }
   };
-
   const [selection, setSelection] = useState({ profileId: profile.id, company: defaultCompany, year: new Date().getFullYear(), question: "" });
   const company = selection.profileId === profile.id && allowedCompanies.includes(selection.company) ? selection.company : defaultCompany;
   const year = selection.profileId === profile.id ? selection.year : new Date().getFullYear();
@@ -191,7 +198,7 @@ export function AiAnswerWorkspace({ organizationNames, currentOrganization, isAd
     setHistorySelection(null);
     void job.run(async signal => {
       const result = await requestAiDraft(request, signal);
-      if (!signal.aborted) saveHistory([{ id: crypto.randomUUID(), createdAt: new Date().toISOString(), question: request.question, result }, ...history].slice(0, 30));
+      if (!signal.aborted) refreshHistory();
       return result;
     });
   };
@@ -204,15 +211,15 @@ export function AiAnswerWorkspace({ organizationNames, currentOrganization, isAd
         <div className="sems-ai-scope"><label>회사<select value={company} onChange={event => update({ company: event.target.value })} disabled={!isAdmin}>{allowedCompanies.map(name => <option key={name} value={name}>{name || "전체 법인"}</option>)}</select></label><label>기준연도<input type="number" min={2000} max={2100} value={year} onChange={event => update({ year: Number(event.target.value) })} /></label></div>
         <label htmlFor={questionId}>고객사 질문 또는 확인할 내용</label><textarea id={questionId} className="sems-ai-question" rows={5} maxLength={2000} value={question} onChange={event => update({ question: event.target.value })} placeholder="예: 올해 전력 사용량과 온실가스 배출량, 관련 근거를 정리해 주세요." />
         <div className="sems-ai-actions"><button type="button" className="primary-button" disabled={availability.configured !== true || job.loading || !question.trim() || (!company && !isAdmin)} onClick={ask}>{job.loading ? "답변을 작성하고 있습니다…" : "답변 초안 만들기"}</button>{job.loading && <button type="button" className="secondary-button" onClick={job.cancel}>취소</button>}</div>
-        <p className="sems-ai-help">답변 기록은 이 브라우저에 계정별로 최근 30건 저장됩니다. 탭 이동·새로고침 후에도 확인할 수 있습니다. 근거와 수치를 확인한 뒤 사용해 주세요.</p>
+        <p className="sems-ai-help">답변 기록은 서버에 계정별 최근 100건 저장됩니다. 다른 PC에서도 같은 계정으로 확인할 수 있습니다. 근거와 수치를 확인한 뒤 사용해 주세요.</p>
         {job.error && <p className="sems-ai-error" role="alert">{job.error}</p>}
         {job.loading && <p className="sems-ai-help" role="status" aria-live="polite">등록 자료를 확인하고 답변을 작성하는 중입니다.</p>}
       </div>
     </article>
-    <article className="card"><div className="sems-ai-body"><h2>답변 기록</h2>
+    <article className="card"><div className="sems-ai-body"><h2>답변 기록 · 최근 100건</h2><button type="button" className="secondary-button compact" onClick={refreshHistory}>기록 새로고침</button>
       {historyError && <p role="alert">{historyError}</p>}
       {!history.length && <p>저장된 답변이 없습니다.</p>}
-      {history.length > 0 && <><button type="button" className="secondary-button compact" onClick={() => { saveHistory([]); setHistorySelection(null); job.reset(); }}>기록 전체 삭제</button><ol>{history.map(item => <li key={item.id}><button type="button" className="secondary-button compact" onClick={() => { job.cancel(); setHistorySelection({ key: historyKey, id: item.id }); }}>{item.result.scope.company || "전체 법인"} · {item.result.scope.year}년 · {item.question}</button><p className="sems-ai-help">{new Date(item.createdAt).toLocaleString("ko-KR")} · 저장 당시 답변</p></li>)}</ol></>}
+      {history.length > 0 && <><button type="button" className="secondary-button compact" onClick={() => { void clearHistory(); }}>기록 전체 삭제</button><ol>{history.map(item => <li key={item.id}><button type="button" className="secondary-button compact" onClick={() => { job.cancel(); setHistorySelection({ key: historyKey, id: item.id }); }}>{item.result.scope.company || "전체 법인"} · {item.result.scope.year}년 · {item.question}</button><p className="sems-ai-help">{new Date(item.createdAt).toLocaleString("ko-KR")} · 저장 당시 답변</p></li>)}</ol></>}
     </div></article>
     {shownResult && <article className="card"><div className="card-header"><div><h2>답변 초안</h2><p>{shownResult.scope.company || "전체 법인"} · {shownResult.scope.year}년</p></div></div><div className="sems-ai-body"><div className="sems-ai-answer">{shownText}</div><TextActions text={answerExport(shownResult, shownText)} context={`${context}:${job.runId}`} downloadName={`SEMS2_AI_Answer_${year}.txt`} downloadText={answerExport(shownResult, shownText)} /><ResultNotes result={shownResult} /><SourceList sources={shownResult.sources} onNavigate={onNavigate} /></div></article>}
   </section>;
