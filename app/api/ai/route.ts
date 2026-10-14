@@ -5,6 +5,8 @@ import { createAiHandlers, type AiAccess } from "@/lib/server/ai-handler";
 import { readAiConfiguration, generateAiDraft, extractAiDocument } from "@/lib/server/ai-provider";
 import { AI_MAX_FILE_BYTES, inspectAiFile } from "@/lib/ai/extraction";
 
+import { saveAiAnswerHistory } from "@/lib/server/ai-history";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -22,6 +24,7 @@ const handlers = createAiHandlers({
     return await result.json() as AiAccess;
   },
   draft: generateAiDraft,
+  saveAnswer: saveAiAnswerHistory,
   extract: extractAiDocument,
   async download(candidate, request) {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

@@ -13,6 +13,7 @@ export type AiDependencies = {
   draft: (config: AiConfiguration, request: AiDraftRequest, sources: AiSource[], files: AiDocument[], signal: AbortSignal) => Promise<unknown>;
   extract: (config: AiConfiguration, context: AiExtractionContext, file: AiDocument, signal: AbortSignal) => Promise<AiExtraction>;
   download: (candidate: AiEvidenceCandidate, request: Request) => Promise<AiDocument | null>;
+  saveAnswer?: (request: Request, access: AiAccess, question: string, result: AiResult) => Promise<void>;
   allowRequest?: (userId: string) => boolean;
 };
 
@@ -50,6 +51,13 @@ export function createAiHandlers(deps: AiDependencies) {
     return access;
   }
 
+  async function respond(request: Request, access: AiAccess, input: AiDraftRequest, result: AiResult) {
+    if (input.mode === "answer" && deps.saveAnswer) {
+      try { await deps.saveAnswer(request, access, input.question, result); }
+      catch { result.warnings = [...result.warnings, "답변은 생성했지만 서버 기록 저장에 실패했습니다. 텍스트로 다운로드하고 DB 설정을 확인해 주세요."]; }
+    }
+    return json(result);
+  }
   return {
     async GET(request: Request) {
       try {
@@ -124,11 +132,11 @@ export function createAiHandlers(deps: AiDependencies) {
         }
         const sources = grounding.sources.filter(source => source.kind !== "evidence" || readIds.has(source.id));
         if (!sources.length || (!grounding.hasFacts && !files.length)) {
-          return json({ mode: input.mode, text: "선택한 회사·연도에 답변을 작성할 확정자료나 읽을 수 있는 승인 증빙이 없습니다. 필요한 자료를 먼저 등록·확정해 주세요.",
+          return respond(request, access, input, { mode: input.mode, text: "선택한 회사·연도에 답변을 작성할 확정자료나 읽을 수 있는 승인 증빙이 없습니다. 필요한 자료를 먼저 등록·확정해 주세요.",
             sources: [], gaps: ["확정된 실적 또는 승인된 원본 증빙이 필요합니다."], warnings: grounding.warnings, scope: { company, year: input.year } } satisfies AiResult);
         }
         const draft = validateDraftReferences(await deps.draft(config, input, sources, files, signal), sources);
-        return json({ mode: input.mode, ...draft, warnings: grounding.warnings, scope: { company, year: input.year } } satisfies AiResult);
+        return respond(request, access, input, { mode: input.mode, ...draft, warnings: grounding.warnings, scope: { company, year: input.year } } satisfies AiResult);
       } catch (cause) {
         if (cause instanceof SyntaxError) return error("요청 또는 AI 응답 형식을 확인할 수 없습니다. 다시 시도해 주세요.", 400, "AI_INVALID_JSON");
         if (cause instanceof Error && ["AbortError", "TimeoutError"].includes(cause.name)) return error("AI 요청이 취소되었거나 시간이 초과되었습니다.", 504, "AI_TIMEOUT");

@@ -113,6 +113,35 @@ export function buildAiGrounding(workspace: AiWorkspace, indicators: AiIndicator
       const duplicateIds = new Set(ids.filter((id, index) => ids.indexOf(id) !== index));
       if (duplicateIds.size) warning(`${year}년 ${scope}: 동일 자료 ID가 중복되어 ${duplicateIds.size}개 자료를 집계에서 제외했습니다.`);
       const kept = rows.filter(row => !duplicateIds.has(row.id as number | string));
+      // Preserve original activity quantities independently of calculated emissions.
+      const usageGroups = new Map<string, Row[]>();
+      for (const row of kept) {
+        if (!("usage" in row) && !text(row.unit, 80)) continue;
+        const key = JSON.stringify([text(row.company, 160), text(row.category, 160), text(row.source, 160), text(row.unit, 80)]);
+        usageGroups.set(key, [...(usageGroups.get(key) ?? []), row]);
+      }
+      for (const [key, usageRows] of usageGroups) {
+        const [legalCompany, category, source, unit] = JSON.parse(key) as string[];
+        let usage = 0, count = 0, missingUsage = 0, estimatedUsage = 0;
+        const periods: string[] = [];
+        for (const row of usageRows) {
+          const state = dataValueStatus({ value: finite(row.usage) ? row.usage : null, dataStatus: row.dataStatus as DataStatus | undefined });
+          if (state === "not_applicable") continue;
+          if (!unit || state === "missing" || !finite(row.usage) || row.usage < 0 || (row.dataStatus === "zero" && row.usage !== 0)) { missingUsage++; continue; }
+          usage += row.usage; count++;
+          if (state === "estimated") estimatedUsage++;
+          periods.push(text(row.period, 32));
+        }
+        if (!Number.isFinite(usage)) { warning(`${year}년 ${scope} 사용량 합계가 숫자 범위를 벗어났습니다.`); continue; }
+        if (missingUsage) warning(`${legalCompany} ${year}년 ${source || category} 사용량: 미입력·단위 누락·오류 ${missingUsage}건 제외. 집계가 불완전합니다.`);
+        add({ id: sourceId("activity", year, scope, "usage", key), kind: "activity", company: legalCompany, period: String(year), view: "inventory",
+          title: `${legalCompany} · ${year}년 ${scope} ${category} ${source} 사용량·활동량`,
+          excerpt: JSON.stringify({ 구분: "배출량 산출에 입력한 원천 사용량·활동량", 법인: legalCompany, 연도: year, Scope: scope,
+            항목: category, 배출원: source, 사용량: count ? usage : null, 단위: unit || null, 집계자료수: count,
+            미입력또는오류: missingUsage, 추정값: estimatedUsage, 등록기간: [...new Set(periods)].sort(),
+            주의: "사용량은 탄소배출량과 다른 값입니다. 법인·항목·배출원·단위별 확정자료만 합산했습니다. 전력과 열은 구분하며 다른 지표의 동일 사용량을 중복 합산하지 않습니다. 등록기간 외 누락 여부는 별도 확인합니다." }),
+        }, count > 0);
+      }
       let sum = 0, valid = 0, missing = 0, estimated = 0, zero = 0, notApplicable = 0;
       const byCompany = new Map<string, number>();
       for (const row of kept) {

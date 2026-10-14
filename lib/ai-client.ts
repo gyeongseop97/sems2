@@ -59,14 +59,14 @@ async function getAccessToken(signal?: AbortSignal): Promise<string> {
   }
 }
 
-async function requestAi(init: RequestInit, signal?: AbortSignal): Promise<unknown> {
+async function requestAi(init: RequestInit, signal?: AbortSignal, endpoint = "/api/ai"): Promise<unknown> {
   const token = await getAccessToken(signal);
   checkAbort(signal);
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
   headers.set("Authorization", `Bearer ${token}`);
   try {
-    const response = await fetch("/api/ai", { ...init, headers, signal, cache: "no-store" });
+    const response = await fetch(endpoint, { ...init, headers, signal, cache: "no-store" });
     let payload: unknown;
     try {
       payload = await response.json();
@@ -130,4 +130,16 @@ export async function requestAiExtraction(context: AiExtractionContext, file: Fi
   const payload = await requestAi({ method: "POST", body }, signal);
   if (!isAiResult(payload) || payload.mode !== "extract" || payload.scope.company !== context.company || payload.scope.year !== context.year) throw new AiRequestError("AI 추출 응답의 회사·연도 또는 형식이 요청과 다릅니다. 다시 확인해 주세요.", "INVALID_RESPONSE");
   return payload;
+}
+
+
+export type AiAnswerHistoryEntry = { id: string; createdAt: string; question: string; result: AiResult };
+export async function getAiAnswerHistory(signal?: AbortSignal): Promise<AiAnswerHistoryEntry[]> {
+  const payload = await requestAi({ method: "GET" }, signal, "/api/ai/history");
+  if (!isObject(payload) || !Array.isArray(payload.entries) || !payload.entries.every(item => isObject(item) && typeof item.id === "string" && typeof item.createdAt === "string" && typeof item.question === "string" && isAiResult(item.result))) throw new AiRequestError("답변 기록 형식이 올바르지 않습니다.", "INVALID_RESPONSE");
+  return payload.entries as AiAnswerHistoryEntry[];
+}
+export async function deleteAiAnswerHistory(): Promise<void> {
+  const payload = await requestAi({ method: "DELETE" }, undefined, "/api/ai/history");
+  if (!isObject(payload) || payload.deleted !== true) throw new AiRequestError("답변 기록을 삭제하지 못했습니다.");
 }

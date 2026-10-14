@@ -178,3 +178,23 @@ test("context is bounded and source IDs are stable while simple question relevan
   const reordered = buildAiGrounding({ ...data, metricSubmissions: [...data.metricSubmissions].reverse() }, [...definitions].reverse(), request({ question: "인권 교육시간" }));
   assert.deepEqual(result.sources.map(source => source.id), reordered.sources.map(source => source.id));
 });
+
+
+test("Scope 2 exposes original electricity separately from emissions, heat and unauthorized data", () => {
+  const result = buildAiGrounding(workspace({ records: [
+    activity({ scope: "Scope 2", category: "전력", source: "구매전력", usage: 1000, unit: "kWh", emissions: 0.4, period: "2023-01" }),
+    activity({ id: 2, scope: "Scope 2", category: "전력", source: "구매전력", usage: 2000, unit: "kWh", emissions: null, period: "2023-02" }),
+    activity({ id: 3, scope: "Scope 2", category: "열", source: "스팀", usage: 20, unit: "GJ", period: "2023-01" }),
+    activity({ id: 4, scope: "Scope 2", category: "전력", source: "구매전력", usage: 9000, unit: "kWh", company: "B", period: "2023-01" }),
+    activity({ id: 5, scope: "Scope 2", category: "전력", source: "구매전력", usage: 8000, unit: "kWh", status: "검토대기", period: "2023-01" }),
+    activity({ id: 6, scope: "Scope 2", category: "전력", source: "구매전력", usage: 7000, unit: "kWh", dataStatus: "missing", period: "2023-03" }),
+  ] }), [], request({ year: 2023, question: "2023년 전력 사용량" }));
+  const facts = parsed(result, "activity");
+  const power = facts.find(row => row.배출원 === "구매전력");
+  assert.equal(power.사용량, 3000);
+  assert.equal(power.단위, "kWh");
+  assert.equal(power.미입력또는오류, 1);
+  assert.equal(facts.find(row => row.배출원 === "스팀").사용량, 20);
+  assert.equal(facts.find(row => row.배출량 !== undefined).배출량, 10.4);
+  assert.ok(!JSON.stringify(result.sources).includes('"B"'));
+});

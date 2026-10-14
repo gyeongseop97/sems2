@@ -35,6 +35,7 @@ function harness(options: {
   extract?: AiDependencies["extract"];
   download?: AiDependencies["download"];
   allowRequest?: AiDependencies["allowRequest"];
+  saveAnswer?: AiDependencies["saveAnswer"];
   loadWorkspace?: AiDependencies["loadWorkspace"];
 } = {}) {
   const payload = workspace(options.workspace);
@@ -58,6 +59,7 @@ function harness(options: {
       calls.download++;
       return options.download ? options.download(...args) : null;
     },
+    ...(options.saveAnswer ? { saveAnswer: options.saveAnswer } : {}),
     ...(options.allowRequest ? { allowRequest: options.allowRequest } : {}),
   };
   return { handlers: createAiHandlers(deps), calls, payload };
@@ -311,4 +313,31 @@ test("draft generation has no workspace-writing dependency and leaves server dat
   assert.equal(response.status, 200);
   assert.equal(client.calls.draft.length, 1);
   assert.deepEqual(client.payload, before);
+});
+
+
+test("answers save server-validated result under authenticated account; reports do not save", async () => {
+  const saved: { user: string; question: string; text: string }[] = [];
+  const { handlers } = harness({ saveAnswer: async (_request, access, question, result) => {
+    saved.push({ user: access.profile.id, question, text: result.text });
+    assert.equal(result.scope.company, "A");
+    assert.ok(result.sources.length > 0);
+  } });
+  assert.equal((await handlers.POST(jsonRequest(draftRequest()))).status, 200);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].user, "user-A");
+  assert.equal(saved[0].question, draftRequest().question);
+  await handlers.POST(jsonRequest(draftRequest({ mode: "report" })));
+  await handlers.POST(jsonRequest(draftRequest(), false));
+  assert.equal(saved.length, 1);
+});
+
+test("history save failure preserves generated answer with explicit warning", async () => {
+  const { handlers } = harness({ saveAnswer: async () => { throw new Error("secret database detail"); } });
+  const response = await handlers.POST(jsonRequest(draftRequest()));
+  const result = await response.json();
+  assert.equal(response.status, 200);
+  assert.match(result.text, /확인한 자료/);
+  assert.match(result.warnings.join(), /서버 기록 저장에 실패/);
+  assert.ok(!JSON.stringify(result).includes("secret database detail"));
 });
